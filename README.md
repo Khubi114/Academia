@@ -1,156 +1,136 @@
-📘 Academia — Unified Student Productivity App
-A customizable student hub that merges Google Calendar, Canvas LMS, and a Notion‑style dashboard into one seamless experience.
+# 📘 **Academia — Unified Student Productivity App**
 
-✨ Overview
-Academia is a modern, customizable productivity app built for students who want everything in one place.
+*A customizable student hub that merges Google Calendar, Canvas LMS, and a Notion‑style dashboard into one seamless experience.*
+
+---
+
+## ✨ **Overview**
+
+**Academia** is a modern, customizable productivity app built for students who want everything in one place.  
 It combines:
 
-the visual clarity of Google Calendar
+- the **visual clarity** of Google Calendar  
+- the **academic power** of Canvas LMS  
+- the **flexibility** of Notion  
+- the **organization** of a to‑do/reminder system  
 
-the academic power of Canvas LMS
-
-the flexibility of Notion
-
-the organization of a to‑do/reminder system
-
-No more switching between apps. No more missed deadlines.
+No more switching between apps. No more missed deadlines.  
 Just one unified academic workspace.
 
-🎯 Core Features
-🗂️ Dashboard‑First Experience (Notion‑Inspired)
+---
+
+## 🎯 **Core Features**
+
+### 🗂️ **Dashboard‑First Experience (Notion‑Inspired)**
 A clean, customizable dashboard showing:
 
-Today’s classes
+- Today’s classes  
+- Upcoming assignments  
+- Personal tasks  
+- Quick‑add buttons  
+- Custom widgets  
 
-Upcoming assignments
+---
 
-Personal tasks
+### 📅 **Google Calendar Sync**
+- Pulls class schedules and events  
+- Colour‑coded entries  
+- Editable inside the app  
+- Two‑way sync (if supported)  
 
-Quick‑add buttons
+---
 
-Custom widgets
+### 🎓 **Canvas LMS Integration**
+- Syncs assignments, due dates, course names, and submission status  
+- Auto‑generates tasks + reminders  
+- Updates every 30–60 minutes  
+- Allows manual overrides  
 
-📅 Google Calendar Sync
-Pulls class schedules and events
+---
 
-Colour‑coded entries
+### 📝 **To‑Do & Reminder System**
+- Create personal tasks  
+- Auto‑generated assignment tasks  
+- Custom reminders  
+- Priority levels  
+- Notifications  
 
-Editable inside the app
+---
 
-Two‑way sync (if supported)
+## 🎨 **Customization**
 
-🎓 Canvas LMS Integration
-Syncs assignments, due dates, course names, and submission status
+### 🎨 **Visual Customization**
+- Themes: light, dark, pastel, academic, minimal  
+- Custom colours  
+- Custom fonts  
+- Layout presets  
+- Icon styles  
+- Aesthetic modes  
 
-Auto‑generates tasks + reminders
+### ⚙️ **Functional Customization**
+- Enable/disable Canvas sync  
+- Enable/disable Google Calendar sync  
+- Choose which courses sync  
+- Customize assignment display  
+- Set reminder timing  
+- Manually edit any synced item  
 
-Updates every 30–60 minutes
+---
 
-Allows manual overrides
+## 🧠 **How Academia Works**
 
-📝 To‑Do & Reminder System
-Create personal tasks
+### 🔗 **Sync Engines**
+- **Google Calendar Engine** → class schedules  
+- **Canvas Sync Engine** → assignments  
+- **Task Engine** → reminders + to‑dos  
 
-Auto‑generated assignment tasks
-
-Custom reminders
-
-Priority levels
-
-Notifications
-
-🎨 Customization
-🎨 Visual Customization
-Themes: light, dark, pastel, academic, minimal
-
-Custom colours
-
-Custom fonts
-
-Layout presets
-
-Icon styles
-
-Aesthetic modes
-
-⚙️ Functional Customization
-Enable/disable Canvas sync
-
-Enable/disable Google Calendar sync
-
-Choose which courses sync
-
-Customize assignment display
-
-Set reminder timing
-
-Manually edit any synced item
-
-🧠 How Academia Works
-🔗 Sync Engines
-Google Calendar Engine → class schedules
-
-Canvas Sync Engine → assignments
-
-Task Engine → reminders + to‑dos
-
-🗄️ Unified Data Layer
+### 🗄️ **Unified Data Layer**
 All data is stored locally for:
 
-Offline access
+- Offline access  
+- Fast loading  
+- Customization  
 
-Fast loading
-
-Customization
-
-🖥️ Dashboard Rendering
+### 🖥️ **Dashboard Rendering**
 Combines:
 
-Calendar events
+- Calendar events  
+- Assignment deadlines  
+- Personal tasks  
+- Widgets  
 
-Assignment deadlines
+---
 
-Personal tasks
+## 🛠️ **Technical Requirements**
+- Google Calendar API  
+- Canvas LMS API  
+- Local database (SQLite / Realm / IndexedDB)  
+- Background sync service  
+- Notification system  
 
-Widgets
+---
 
-🛠️ Technical Requirements
-Google Calendar API
-
-Canvas LMS API
-
-Local database (SQLite / Realm / IndexedDB)
-
-Background sync service
-
-Notification system
-
-🚀 Optional Enhancements
+## 🚀 **Optional Enhancements**
 Future‑ready features:
 
-AI‑generated study plans
+- AI‑generated study plans  
+- Smart priority scoring  
+- Home screen widgets  
+- Pomodoro timer  
+- Course progress analytics  
+- Assignment difficulty prediction  
 
-Smart priority scoring
+---
 
-Home screen widgets
-
-Pomodoro timer
-
-Course progress analytics
-
-Assignment difficulty prediction
-
-📚 Why Academia Exists
+## 📚 **Why Academia Exists**
 Students shouldn’t need:
 
-Google Calendar
+- Google Calendar  
+- Canvas  
+- A to‑do app  
+- A notes app  
+- A reminder app  
 
-Canvas
+**Academia merges all of these into one customizable, intuitive, student‑first experience.**
 
-A to‑do app
-
-A notes app
-
-A reminder app
-
-Academia merges all of these into one customizable, intuitive, student‑first experience.
+---
