@@ -1,112 +1,156 @@
-# Flutter
+📘 Academia — Unified Student Productivity App
+A customizable student hub that merges Google Calendar, Canvas LMS, and a Notion‑style dashboard into one seamless experience.
 
-A modern Flutter-based mobile application utilizing the latest mobile development technologies and tools for building responsive cross-platform applications.
+✨ Overview
+Academia is a modern, customizable productivity app built for students who want everything in one place.
+It combines:
 
-## 📋 Prerequisites
+the visual clarity of Google Calendar
 
-- Flutter SDK (^3.38.4)
-- Dart SDK
-- Android Studio / VS Code with Flutter extensions
-- Android SDK / Xcode (for iOS development)
+the academic power of Canvas LMS
 
-## 🛠️ Installation
+the flexibility of Notion
 
-1. Install dependencies:
-```bash
-flutter pub get
-```
+the organization of a to‑do/reminder system
 
-2. Run the application:
-```bash
-flutter run
-```
+No more switching between apps. No more missed deadlines.
+Just one unified academic workspace.
 
-## 📁 Project Structure
+🎯 Core Features
+🗂️ Dashboard‑First Experience (Notion‑Inspired)
+A clean, customizable dashboard showing:
 
-```
-flutter_app/
-├── android/            # Android-specific configuration
-├── ios/                # iOS-specific configuration
-├── lib/
-│   ├── core/           # Core utilities and services
-│   │   └── utils/      # Utility classes
-│   ├── presentation/   # UI screens and widgets
-│   │   └── splash_screen/ # Splash screen implementation
-│   ├── routes/         # Application routing
-│   ├── theme/          # Theme configuration
-│   ├── widgets/        # Reusable UI components
-│   └── main.dart       # Application entry point
-├── assets/             # Static assets (images, fonts, etc.)
-├── pubspec.yaml        # Project dependencies and configuration
-└── README.md           # Project documentation
-```
+Today’s classes
 
-## 🧩 Adding Routes
+Upcoming assignments
 
-To add new routes to the application, update the `lib/routes/app_routes.dart` file:
+Personal tasks
 
-```dart
-import 'package:flutter/material.dart';
-import 'package:package_name/presentation/home_screen/home_screen.dart';
+Quick‑add buttons
 
-class AppRoutes {
-  static const String initial = '/';
-  static const String home = '/home';
+Custom widgets
 
-  static Map<String, WidgetBuilder> routes = {
-    initial: (context) => const SplashScreen(),
-    home: (context) => const HomeScreen(),
-    // Add more routes as needed
-  }
-}
-```
+📅 Google Calendar Sync
+Pulls class schedules and events
 
-## 🎨 Theming
+Colour‑coded entries
 
-This project includes a comprehensive theming system with both light and dark themes:
+Editable inside the app
 
-```dart
-// Access the current theme
-ThemeData theme = Theme.of(context);
+Two‑way sync (if supported)
 
-// Use theme colors
-Color primaryColor = theme.colorScheme.primary;
-```
+🎓 Canvas LMS Integration
+Syncs assignments, due dates, course names, and submission status
 
-The theme configuration includes:
-- Color schemes for light and dark modes
-- Typography styles
-- Button themes
-- Input decoration themes
-- Card and dialog themes
+Auto‑generates tasks + reminders
 
-## 📱 Responsive Design
+Updates every 30–60 minutes
 
-The app is built with responsive design using the Sizer package:
+Allows manual overrides
 
-```dart
-// Example of responsive sizing
-Container(
-  width: 50.w, // 50% of screen width
-  height: 20.h, // 20% of screen height
-  child: Text('Responsive Container'),
-)
-```
-## 📦 Deployment
+📝 To‑Do & Reminder System
+Create personal tasks
 
-Build the application for production:
+Auto‑generated assignment tasks
 
-```bash
-# For Android
-flutter build apk --release
+Custom reminders
 
-# For iOS
-flutter build ios --release
-```
+Priority levels
 
-## 🙏 Acknowledgments
-- Built with [Rocket.new](https://rocket.new)
-- Powered by [Flutter](https://flutter.dev) & [Dart](https://dart.dev)
-- Styled with Material Design
+Notifications
 
-Built with ❤️ on Rocket.new
+🎨 Customization
+🎨 Visual Customization
+Themes: light, dark, pastel, academic, minimal
+
+Custom colours
+
+Custom fonts
+
+Layout presets
+
+Icon styles
+
+Aesthetic modes
+
+⚙️ Functional Customization
+Enable/disable Canvas sync
+
+Enable/disable Google Calendar sync
+
+Choose which courses sync
+
+Customize assignment display
+
+Set reminder timing
+
+Manually edit any synced item
+
+🧠 How Academia Works
+🔗 Sync Engines
+Google Calendar Engine → class schedules
+
+Canvas Sync Engine → assignments
+
+Task Engine → reminders + to‑dos
+
+🗄️ Unified Data Layer
+All data is stored locally for:
+
+Offline access
+
+Fast loading
+
+Customization
+
+🖥️ Dashboard Rendering
+Combines:
+
+Calendar events
+
+Assignment deadlines
+
+Personal tasks
+
+Widgets
+
+🛠️ Technical Requirements
+Google Calendar API
+
+Canvas LMS API
+
+Local database (SQLite / Realm / IndexedDB)
+
+Background sync service
+
+Notification system
+
+🚀 Optional Enhancements
+Future‑ready features:
+
+AI‑generated study plans
+
+Smart priority scoring
+
+Home screen widgets
+
+Pomodoro timer
+
+Course progress analytics
+
+Assignment difficulty prediction
+
+📚 Why Academia Exists
+Students shouldn’t need:
+
+Google Calendar
+
+Canvas
+
+A to‑do app
+
+A notes app
+
+A reminder app
+
+Academia merges all of these into one customizable, intuitive, student‑first experience.
