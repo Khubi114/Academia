@@ -1,10 +1,24 @@
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/app_export.dart';
 import '../widgets/custom_error_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialise Supabase so auth + cached events work
+  await Supabase.initialize(
+    url: const String.fromEnvironment(
+      'SUPABASE_URL',
+      defaultValue: 'https://ktfimwhkkbspkizazjvr.supabase.co',
+    ),
+    anonKey: const String.fromEnvironment(
+      'SUPABASE_ANON_KEY',
+      defaultValue:
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0Zmltd2hra2JzcGtpemF6anZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3OTgzMzksImV4cCI6MjA5NDM3NDMzOX0.PM2ZFnZs0uPpVJMixvYMB9LrAyvMu7RN8jsraxEYiq0',
+    ),
+  );
 
   bool hasShownError = false;
 

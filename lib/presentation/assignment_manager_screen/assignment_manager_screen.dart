@@ -1,5 +1,6 @@
 
 import '../../core/app_export.dart';
+import '../../services/canvas_service.dart';
 import './widgets/assignment_detail_sheet_widget.dart';
 import './widgets/assignment_filter_bar_widget.dart';
 import './widgets/assignment_list_item_widget.dart';
@@ -16,158 +17,15 @@ class AssignmentManagerScreen extends StatefulWidget {
 class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
     with SingleTickerProviderStateMixin {
   bool _isLoading = true;
+  bool _isSyncing = false;
   String _activeFilter = 'all';
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   late AnimationController _listController;
   bool _showSearch = false;
+  DateTime? _lastSynced;
 
-  final List<Map<String, dynamic>> _assignmentsMaps = [
-    {
-      'id': 'a1',
-      'title': 'Binary Search Tree Implementation',
-      'courseName': 'Algorithms & Data Structures',
-      'courseCode': 'CS 301',
-      'courseColor': 'primary',
-      'dueDate': 'May 1, 2026',
-      'dueTime': '11:59 PM',
-      'dueDateRaw': 'today',
-      'status': 'due_soon',
-      'points': 100,
-      'pointsEarned': null,
-      'submitted': false,
-      'description':
-          'Implement a fully functional BST with insert, delete, search, and in-order traversal. Submit via GitHub classroom link. Include README with time complexity analysis.',
-      'submissionType': 'Online (GitHub)',
-      'reminderSet': false,
-    },
-    {
-      'id': 'a2',
-      'title': 'Problem Set 7 — Eigenvalues & Eigenvectors',
-      'courseName': 'Linear Algebra',
-      'courseCode': 'MATH 251',
-      'courseColor': 'secondary',
-      'dueDate': 'May 2, 2026',
-      'dueTime': '11:59 PM',
-      'dueDateRaw': 'tomorrow',
-      'status': 'upcoming',
-      'points': 50,
-      'pointsEarned': null,
-      'submitted': false,
-      'description':
-          'Complete problems 7.1 through 7.8 from the textbook. Show all work for full credit. Scan and upload as a single PDF.',
-      'submissionType': 'File Upload (PDF)',
-      'reminderSet': true,
-    },
-    {
-      'id': 'a3',
-      'title': 'Research Paper Draft',
-      'courseName': 'Technical Writing',
-      'courseCode': 'ENG 340',
-      'courseColor': 'teal',
-      'dueDate': 'May 3, 2026',
-      'dueTime': '11:59 PM',
-      'dueDateRaw': 'future',
-      'status': 'upcoming',
-      'points': 150,
-      'pointsEarned': null,
-      'submitted': false,
-      'description':
-          'Submit a 2,500-word draft of your research paper. Include abstract, introduction, at least 8 sources in APA format, and a preliminary conclusion.',
-      'submissionType': 'Text Entry / File Upload',
-      'reminderSet': false,
-    },
-    {
-      'id': 'a4',
-      'title': 'Graph Traversal Lab',
-      'courseName': 'Algorithms & Data Structures',
-      'courseCode': 'CS 301',
-      'courseColor': 'primary',
-      'dueDate': 'Apr 29, 2026',
-      'dueTime': '11:59 PM',
-      'dueDateRaw': 'past',
-      'status': 'overdue',
-      'points': 75,
-      'pointsEarned': null,
-      'submitted': false,
-      'description':
-          'Implement BFS and DFS on an adjacency list graph. Include unit tests. Late submissions penalized 10% per day.',
-      'submissionType': 'Online (GitHub)',
-      'reminderSet': false,
-    },
-    {
-      'id': 'a5',
-      'title': 'Midterm Exam Review Quiz',
-      'courseName': 'Linear Algebra',
-      'courseCode': 'MATH 251',
-      'courseColor': 'secondary',
-      'dueDate': 'Apr 28, 2026',
-      'dueTime': '11:59 PM',
-      'dueDateRaw': 'past',
-      'status': 'submitted',
-      'points': 20,
-      'pointsEarned': 18,
-      'submitted': true,
-      'description':
-          'Online quiz covering chapters 5 and 6. 10 multiple choice questions, 30 minutes time limit.',
-      'submissionType': 'Online Quiz',
-      'reminderSet': false,
-    },
-    {
-      'id': 'a6',
-      'title': 'Sorting Algorithms Analysis',
-      'courseName': 'Algorithms & Data Structures',
-      'courseCode': 'CS 301',
-      'courseColor': 'primary',
-      'dueDate': 'Apr 25, 2026',
-      'dueTime': '11:59 PM',
-      'dueDateRaw': 'past',
-      'status': 'graded',
-      'points': 80,
-      'pointsEarned': 76,
-      'submitted': true,
-      'description':
-          'Comparative analysis of QuickSort, MergeSort, and HeapSort. Include empirical benchmarks and theoretical analysis.',
-      'submissionType': 'File Upload (PDF)',
-      'reminderSet': false,
-    },
-    {
-      'id': 'a7',
-      'title': 'Professional Email Assignment',
-      'courseName': 'Technical Writing',
-      'courseCode': 'ENG 340',
-      'courseColor': 'teal',
-      'dueDate': 'Apr 24, 2026',
-      'dueTime': '11:59 PM',
-      'dueDateRaw': 'past',
-      'status': 'graded',
-      'points': 30,
-      'pointsEarned': 28,
-      'submitted': true,
-      'description':
-          'Write three professional emails for different scenarios: request, complaint, and follow-up. Follow the style guide provided.',
-      'submissionType': 'Text Entry',
-      'reminderSet': false,
-    },
-    {
-      'id': 'a8',
-      'title': 'Dynamic Programming Problems',
-      'courseName': 'Algorithms & Data Structures',
-      'courseCode': 'CS 301',
-      'courseColor': 'primary',
-      'dueDate': 'May 8, 2026',
-      'dueTime': '11:59 PM',
-      'dueDateRaw': 'future',
-      'status': 'upcoming',
-      'points': 90,
-      'pointsEarned': null,
-      'submitted': false,
-      'description':
-          'Solve 5 dynamic programming problems from the problem set. Provide memoized and tabulated solutions where applicable.',
-      'submissionType': 'Online (GitHub)',
-      'reminderSet': false,
-    },
-  ];
+  // No hardcoded data — assignments come from Canvas LMS
 
   List<AssignmentManagerItem> _assignments = [];
 
@@ -182,23 +40,26 @@ class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
   }
 
   Future<void> _loadAssignments() async {
-    // TODO: Replace with real Canvas API call
-    await Future.delayed(const Duration(milliseconds: 500));
+    await CanvasService.instance.loadCredentials();
+    final items = await CanvasService.instance.fetchAssignments();
     if (!mounted) return;
     setState(() {
-      _assignments = _assignmentsMaps
-          .map(AssignmentManagerItem.fromMap)
-          .toList();
+      _assignments = items;
+      _lastSynced = CanvasService.instance.lastSynced;
       _isLoading = false;
     });
     _listController.forward();
   }
 
   Future<void> _onRefresh() async {
-    // TODO: Replace with real Canvas sync trigger
-    await Future.delayed(const Duration(milliseconds: 1000));
+    setState(() => _isSyncing = true);
+    final items = await CanvasService.instance.fetchAssignments();
     if (!mounted) return;
-    setState(() {});
+    setState(() {
+      _assignments = items;
+      _lastSynced = CanvasService.instance.lastSynced;
+      _isSyncing = false;
+    });
   }
 
   List<AssignmentManagerItem> get _filteredAssignments {
@@ -275,6 +136,15 @@ class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
     super.dispose();
   }
 
+  String get _syncSubtitle {
+    if (!CanvasService.instance.isConnected) return 'Canvas LMS · Not connected';
+    if (_lastSynced == null) return 'Canvas LMS · Syncing…';
+    final diff = DateTime.now().difference(_lastSynced!);
+    if (diff.inMinutes < 1) return 'Canvas LMS · Just synced';
+    if (diff.inMinutes < 60) return 'Canvas LMS · Synced ${diff.inMinutes}m ago';
+    return 'Canvas LMS · Synced ${diff.inHours}h ago';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -322,11 +192,13 @@ class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
                   ),
                 ),
                 Text(
-                  'Canvas LMS · Synced 8m ago',
+                  _syncSubtitle,
                   style: GoogleFonts.manrope(
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: CanvasService.instance.isConnected
+                        ? theme.colorScheme.onSurfaceVariant
+                        : AppTheme.canvasAmber,
                   ),
                 ),
               ],
@@ -346,11 +218,17 @@ class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
             ),
           ),
           IconButton(
-            onPressed: _onRefresh,
-            icon: Icon(
-              Icons.sync_rounded,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+            onPressed: _isSyncing ? null : _onRefresh,
+            icon: _isSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    Icons.sync_rounded,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
           ),
         ],
       ),

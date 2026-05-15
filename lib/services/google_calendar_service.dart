@@ -3,86 +3,97 @@
 // Responsibilities:
 //   1. Sign the user in with Google and send the server auth code to Vercel.
 //   2. Fetch calendar events for a date range from the Vercel endpoint.
-//   3. Map raw JSON → CalendarEvent objects (the model already used in
-//      calendar_view_screen.dart — no model changes needed).
+//   3. Map raw JSON → CalendarEvent objects used across the app.
 //
-// Dependencies to add to pubspec.yaml:
-//   google_sign_in: ^6.2.1
-//   supabase_flutter: ^2.5.0
-//
-// Environment variables (add to your .env / build config):
-//   VERCEL_BASE_URL  — e.g. https://your-app.vercel.app
+// Vercel endpoints:
+//   POST /api/calendar/exchange  — stores refresh_token in Supabase
+//   GET  /api/calendar/events    — returns events for a date range
 
-import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// Import the CalendarEvent model from the screen file.
-// It lives at the bottom of calendar_view_screen.dart already.
 import '../presentation/calendar_view_screen/calendar_view_screen.dart';
 
 class GoogleCalendarService {
   GoogleCalendarService._();
   static final GoogleCalendarService instance = GoogleCalendarService._();
 
-  // ── Configuration ──────────────────────────────────────────────────────────
-  // Replace with your actual Vercel deployment URL.
-  // Store this in a constants file or from dart-define in production.
-  static const String _vercelBaseUrl =
-      String.fromEnvironment('VERCEL_BASE_URL', defaultValue: 'https://your-app.vercel.app');
+  // ── Configuration ───────────────────────────────────────────────────────────
+  static const String _vercelBaseUrl = String.fromEnvironment(
+    'VERCEL_BASE_URL',
+    defaultValue: 'https://academia-plum.vercel.app',
+  );
 
-  // The Web OAuth 2.0 Client ID from Google Cloud Console.
-  // Used so google_sign_in can return a server auth code instead of
-  // an access token — the server code is what Vercel exchanges for tokens.
-  static const String _serverClientId =
-      String.fromEnvironment('GOOGLE_WEB_CLIENT_ID', defaultValue: '');
+  static const String _serverClientId = String.fromEnvironment(
+    'GOOGLE_WEB_CLIENT_ID',
+    defaultValue:
+        '821856499544-pro3mv21j1dkrqiiqf4b0ssbiie3u3u9.apps.googleusercontent.com',
+  );
 
-  // ── Internal state ─────────────────────────────────────────────────────────
+  // ── Internal state ──────────────────────────────────────────────────────────
   final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 15),
+    receiveTimeout: const Duration(seconds: 20),
   ));
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    // Calendar read-only is free and covers all event data we need.
     scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
-    // serverClientId is required to get a serverAuthCode back.
     serverClientId: _serverClientId,
   );
 
   bool _isConnected = false;
   bool get isConnected => _isConnected;
 
-  // ── Auth ───────────────────────────────────────────────────────────────────
+  // ── Auth ────────────────────────────────────────────────────────────────────
 
-  /// Signs the user in with Google and sends the server auth code to Vercel
-  /// so a refresh_token can be stored in Supabase.
-  ///
-  /// Returns true on success, false if the user cancels or an error occurs.
+  /// Checks if this user already has a token in Supabase (restore on app launch).
+  Future<void> checkExistingConnection() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      final result = await Supabase.instance.client
+          .from('calendar_tokens')
+          .select('user_id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      _isConnected = result != null;
+    } catch (_) {
+      _isConnected = false;
+    }
+  }
+
+  /// Signs the user in with Google (shows account picker) and sends the
+  /// server auth code to Vercel to exchange for a refresh token.
   Future<bool> signIn() async {
     try {
-      // 1. Trigger Google sign-in flow (shows the account picker).
+      // 1. Sign in anonymously to Supabase so we have a user_id
+      final supabase = Supabase.instance.client;
+      if (supabase.auth.currentUser == null) {
+        await supabase.auth.signInAnonymously();
+      }
+
+      final String? userId = supabase.auth.currentUser?.id;
+      if (userId == null) {
+        debugPrint('[GCalService] Could not get Supabase user ID');
+        return false;
+      }
+
+      // 2. Trigger Google sign-in (account picker)
       final GoogleSignInAccount? account = await _googleSignIn.signIn();
       if (account == null) return false; // user cancelled
 
-      // 2. The serverAuthCode is what Vercel needs — not the access token.
+      // 3. Get server auth code
       final String? serverAuthCode = account.serverAuthCode;
       if (serverAuthCode == null) {
-        debugPrint('[GCalService] No serverAuthCode returned. '
-            'Make sure serverClientId is set and the scope is correct.');
+        debugPrint('[GCalService] No serverAuthCode — check serverClientId');
         return false;
       }
 
-      // 3. Get the Supabase user id to associate the token with.
-      final String? userId = Supabase.instance.client.auth.currentUser?.id;
-      if (userId == null) {
-        debugPrint('[GCalService] No Supabase user — sign into the app first.');
-        return false;
-      }
-
-      // 4. Send the server auth code to Vercel for token exchange.
+      // 4. Send to Vercel for token exchange
       final response = await _dio.post(
         '$_vercelBaseUrl/api/calendar/exchange',
         data: {'server_auth_code': serverAuthCode, 'user_id': userId},
@@ -90,6 +101,7 @@ class GoogleCalendarService {
 
       if (response.statusCode == 200) {
         _isConnected = true;
+        debugPrint('[GCalService] Connected successfully');
         return true;
       }
 
@@ -104,33 +116,36 @@ class GoogleCalendarService {
     }
   }
 
-  /// Signs the user out of Google (does NOT delete the Supabase token).
+  /// Signs out of Google. Does NOT delete the Supabase refresh token,
+  /// so the server can still fetch events in the background.
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     _isConnected = false;
   }
 
-  // ── Events ─────────────────────────────────────────────────────────────────
+  // ── Events ──────────────────────────────────────────────────────────────────
 
-  /// Fetches all calendar events between [start] and [end] (inclusive).
-  ///
-  /// The Vercel function serves cached data when possible (15-minute TTL),
-  /// so calling this for every screen load is safe and free-tier friendly.
-  ///
-  /// Returns an empty list if the user is not connected or on any error.
+  /// Fetches events for [start]–[end] from Vercel (which caches in Supabase).
   Future<List<CalendarEvent>> fetchEvents({
     required DateTime start,
     required DateTime end,
   }) async {
-    final String? userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) {
-      debugPrint('[GCalService] fetchEvents: no Supabase user');
-      return [];
+    // Ensure we have a Supabase session
+    final supabase = Supabase.instance.client;
+    if (supabase.auth.currentUser == null) {
+      try {
+        await supabase.auth.signInAnonymously();
+      } catch (_) {}
     }
 
+    final String? userId = supabase.auth.currentUser?.id;
+    if (userId == null) return [];
+
     try {
-      final String timeMin = '${start.toIso8601String().split('T')[0]}T00:00:00Z';
-      final String timeMax = '${end.toIso8601String().split('T')[0]}T23:59:59Z';
+      final String timeMin =
+          '${start.toIso8601String().split('T')[0]}T00:00:00Z';
+      final String timeMax =
+          '${end.toIso8601String().split('T')[0]}T23:59:59Z';
 
       final response = await _dio.get(
         '$_vercelBaseUrl/api/calendar/events',
@@ -141,10 +156,7 @@ class GoogleCalendarService {
         },
       );
 
-      if (response.statusCode != 200) {
-        debugPrint('[GCalService] fetchEvents non-200: ${response.statusCode}');
-        return [];
-      }
+      if (response.statusCode != 200) return [];
 
       final List<dynamic> rawEvents =
           (response.data as Map<String, dynamic>)['events'] as List<dynamic>;
@@ -154,11 +166,8 @@ class GoogleCalendarService {
           .map((json) => _mapToCalendarEvent(json as Map<String, dynamic>))
           .toList();
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        // Token missing — user needs to re-connect.
-        _isConnected = false;
-      }
-      debugPrint('[GCalService] fetchEvents DioException: ${e.message}');
+      if (e.response?.statusCode == 401) _isConnected = false;
+      debugPrint('[GCalService] fetchEvents: ${e.message}');
       return [];
     } catch (e) {
       debugPrint('[GCalService] fetchEvents error: $e');
@@ -166,19 +175,17 @@ class GoogleCalendarService {
     }
   }
 
-  /// Convenience: fetch events for a full calendar month plus a small buffer
-  /// so adjacent-month days (shown greyed out) also have dot indicators.
+  /// Convenience: fetch a full month plus one-week buffer on each side.
   Future<List<CalendarEvent>> fetchMonthEvents(DateTime month) {
-    final start = DateTime(month.year, month.month, 1).subtract(const Duration(days: 7));
-    final end = DateTime(month.year, month.month + 1, 0).add(const Duration(days: 7));
+    final start =
+        DateTime(month.year, month.month, 1).subtract(const Duration(days: 7));
+    final end = DateTime(month.year, month.month + 1, 0)
+        .add(const Duration(days: 7));
     return fetchEvents(start: start, end: end);
   }
 
-  // ── Mapping ────────────────────────────────────────────────────────────────
+  // ── Mapping ─────────────────────────────────────────────────────────────────
 
-  /// Maps a JSON row (from either Vercel or Supabase) to the [CalendarEvent]
-  /// model that already exists in calendar_view_screen.dart.
-  /// No changes to the model are needed.
   CalendarEvent _mapToCalendarEvent(Map<String, dynamic> json) {
     final String dateStr = json['event_date'] as String;
     final parts = dateStr.split('-');

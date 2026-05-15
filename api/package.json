@@ -1,0 +1,9 @@
+{
+  "name": "academia-api",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@supabase/supabase-js": "^2.43.0",
+    "googleapis": "^140.0.0"
+  }
+}

@@ -1,39 +1,28 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// CHANGES TO: lib/presentation/calendar_view_screen/calendar_view_screen.dart
-//
-// Apply each block below using str_replace. The rest of the file is unchanged.
-// ─────────────────────────────────────────────────────────────────────────────
+import '../../core/app_export.dart';
+import '../../services/google_calendar_service.dart';
+import './widgets/add_event_sheet_widget.dart';
+import './widgets/calendar_day_events_widget.dart';
+import './widgets/calendar_legend_widget.dart';
+import './widgets/calendar_month_widget.dart';
 
+class CalendarViewScreen extends StatefulWidget {
+  const CalendarViewScreen({super.key});
 
-// ── CHANGE 1: Add import at the top of the file ───────────────────────────────
-// Add after the existing import block:
+  @override
+  State<CalendarViewScreen> createState() => _CalendarViewScreenState();
+}
 
-import '../../../services/google_calendar_service.dart';
+class _CalendarViewScreenState extends State<CalendarViewScreen>
+    with SingleTickerProviderStateMixin {
+  late DateTime _focusedMonth;
+  late DateTime _selectedDay;
+  late AnimationController _entranceController;
+  late Animation<double> _fadeAnim;
 
-
-// ── CHANGE 2: Inside _CalendarViewScreenState — add new state fields ──────────
-// Add these two lines alongside the existing state declarations
-// (near _focusedMonth, _selectedDay, etc.):
-
-bool _calendarLoading = true;
-bool _calendarConnected = false;
-
-
-// ── CHANGE 3: Replace the entire initState method ────────────────────────────
-// OLD:
-//   @override
-//   void initState() {
-//     super.initState();
-//     final now = DateTime(2026, 5, 1);
-//     _focusedMonth = DateTime(now.year, now.month, 1);
-//     _selectedDay = now;
-//     _entranceController = AnimationController( ... );
-//     _fadeAnim = CurvedAnimation( ... );
-//     _events = _eventsMaps.map(CalendarEvent.fromMap).toList();  // ← REMOVE THIS LINE
-//     _entranceController.forward();
-//   }
-//
-// NEW — replace _events assignment with a real fetch:
+  List<CalendarEvent> _events = [];
+  bool _calendarLoading = true;
+  bool _calendarConnected = false;
+  bool _isConnecting = false;
 
   @override
   void initState() {
@@ -52,29 +41,19 @@ bool _calendarConnected = false;
     _loadCalendarEvents(_focusedMonth);
   }
 
-
-// ── CHANGE 4: Replace _onMonthChanged to also refetch events ─────────────────
-// OLD:
-//   void _onMonthChanged(DateTime month) {
-//     setState(() => _focusedMonth = month);
-//   }
-//
-// NEW:
-
-  void _onMonthChanged(DateTime month) {
-    setState(() => _focusedMonth = month);
-    _loadCalendarEvents(month);
+  @override
+  void dispose() {
+    _entranceController.dispose();
+    super.dispose();
   }
 
-
-// ── CHANGE 5: Add new _loadCalendarEvents method ──────────────────────────────
-// Add this method anywhere inside _CalendarViewScreenState,
-// e.g. right after _onMonthChanged:
+  // ── Data loading ─────────────────────────────────────────────────────────────
 
   Future<void> _loadCalendarEvents(DateTime month) async {
     setState(() => _calendarLoading = true);
 
-    final events = await GoogleCalendarService.instance.fetchMonthEvents(month);
+    final events =
+        await GoogleCalendarService.instance.fetchMonthEvents(month);
 
     if (!mounted) return;
     setState(() {
@@ -83,41 +62,395 @@ bool _calendarConnected = false;
       _calendarLoading = false;
     });
 
-    // Only start the entrance animation once we have data.
     if (!_entranceController.isAnimating && !_entranceController.isCompleted) {
       _entranceController.forward();
     }
   }
 
+  Future<void> _connectGoogle() async {
+    setState(() => _isConnecting = true);
+    final ok = await GoogleCalendarService.instance.signIn();
+    if (ok) {
+      await _loadCalendarEvents(_focusedMonth);
+    }
+    if (mounted) setState(() => _isConnecting = false);
+  }
 
-// ── CHANGE 6: Add a connect-to-Google button in _buildHeader ─────────────────
-// Add inside the Row in _buildHeader, before the closing bracket,
-// alongside the existing 'Today' TextButton:
+  // ── Event helpers ─────────────────────────────────────────────────────────────
 
-              if (!_calendarConnected)
-                TextButton.icon(
-                  onPressed: () async {
-                    final ok = await GoogleCalendarService.instance.signIn();
-                    if (ok) _loadCalendarEvents(_focusedMonth);
-                  },
-                  icon: const Icon(Icons.add_rounded, size: 16),
-                  label: Text(
-                    'Connect Google',
-                    style: GoogleFonts.manrope(fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppTheme.secondary,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+  Map<DateTime, List<CalendarEvent>> get _eventsByDay {
+    final map = <DateTime, List<CalendarEvent>>{};
+    for (final e in _events) {
+      final key = DateTime(e.date.year, e.date.month, e.date.day);
+      (map[key] ??= []).add(e);
+    }
+    return map;
+  }
+
+  List<CalendarEvent> _eventsForDay(DateTime day) {
+    final key = DateTime(day.year, day.month, day.day);
+    final evts = _eventsByDay[key] ?? [];
+    evts.sort((a, b) => a.startTime.compareTo(b.startTime));
+    return evts;
+  }
+
+  void _onMonthChanged(DateTime month) {
+    setState(() => _focusedMonth = month);
+    _loadCalendarEvents(month);
+  }
+
+  void _showAddEvent() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AddEventSheetWidget(
+        selectedDate: _selectedDay,
+        onEventAdded: (event) {
+          setState(() => _events.add(event));
+        },
+      ),
+    );
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return AppScaffold(
+      currentIndex: 2,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(theme),
+            if (!_calendarConnected && !_calendarLoading)
+              _buildConnectBanner(theme),
+            CalendarMonthWidget(
+              focusedMonth: _focusedMonth,
+              selectedDay: _selectedDay,
+              eventsByDay: _eventsByDay,
+              onDaySelected: (day) => setState(() => _selectedDay = day),
+              onMonthChanged: _onMonthChanged,
+            ),
+            const CalendarLegendWidget(),
+            Expanded(
+              child: _calendarLoading
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 40),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : FadeTransition(
+                      opacity: _fadeAnim,
+                      child: _buildDayEvents(theme),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Calendar',
+                  style: GoogleFonts.manrope(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
+                Text(
+                  _calendarConnected
+                      ? 'Google Calendar · Synced'
+                      : 'Connect Google Calendar to see events',
+                  style: GoogleFonts.manrope(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    color: _calendarConnected
+                        ? theme.colorScheme.onSurfaceVariant
+                        : AppTheme.canvasAmber,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Today button
+          TextButton(
+            onPressed: () {
+              final now = DateTime.now();
+              final newMonth = DateTime(now.year, now.month, 1);
+              setState(() {
+                _selectedDay = now;
+                if (_focusedMonth != newMonth) {
+                  _focusedMonth = newMonth;
+                  _loadCalendarEvents(newMonth);
+                }
+              });
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: theme.colorScheme.primary,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            child: Text(
+              'Today',
+              style: GoogleFonts.manrope(
+                  fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ),
+          // Add event button
+          IconButton(
+            onPressed: _showAddEvent,
+            icon: Icon(
+              Icons.add_rounded,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildConnectBanner(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Material(
+        color: AppTheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: _isConnecting ? null : _connectGoogle,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.event_available_rounded,
+                    size: 18, color: AppTheme.secondary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Tap to connect your Google Calendar',
+                    style: GoogleFonts.manrope(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.secondary,
+                    ),
+                  ),
+                ),
+                if (_isConnecting)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppTheme.secondary,
+                    ),
+                  )
+                else
+                  Icon(Icons.arrow_forward_ios_rounded,
+                      size: 14, color: AppTheme.secondary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-// ── CHANGE 7: Remove the now-unused _eventsMaps list ─────────────────────────
-// Delete the entire `final List<Map<String, dynamic>> _eventsMaps = [ ... ];`
-// block from _CalendarViewScreenState. It is no longer needed.
-// The _events list is now populated by _loadCalendarEvents above.
+  Widget _buildDayEvents(ThemeData theme) {
+    final dayEvents = _eventsForDay(_selectedDay);
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    const weekdays = [
+      'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+      'Friday', 'Saturday', 'Sunday',
+    ];
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Row(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    weekdays[_selectedDay.weekday - 1],
+                    style: GoogleFonts.manrope(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  Text(
+                    '${months[_selectedDay.month - 1]} ${_selectedDay.day}',
+                    style: GoogleFonts.manrope(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: dayEvents.isEmpty
+                      ? theme.colorScheme.surfaceContainerHighest
+                      : AppTheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  dayEvents.isEmpty
+                      ? 'No events'
+                      : '${dayEvents.length} event${dayEvents.length == 1 ? '' : 's'}',
+                  style: GoogleFonts.manrope(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: dayEvents.isEmpty
+                        ? theme.colorScheme.onSurfaceVariant
+                        : AppTheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: dayEvents.isEmpty
+              ? _buildEmptyDay(theme)
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                  itemCount: dayEvents.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) =>
+                      CalendarDayEventsWidget(event: dayEvents[index]),
+                ),
+        ),
+      ],
+    );
+  }
 
-// ── NO OTHER CHANGES NEEDED ───────────────────────────────────────────────────
-// Everything else in the file — CalendarEvent model, widgets, _eventsForDay,
-// _eventsByDay, _showAddEvent, build methods — stays exactly as-is.
+  Widget _buildEmptyDay(ThemeData theme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 60),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(
+                Icons.event_available_outlined,
+                size: 26,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Nothing scheduled',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _calendarConnected
+                  ? 'Free day — enjoy it!'
+                  : 'Connect Google Calendar to see your events',
+              style: GoogleFonts.manrope(
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (!_calendarConnected) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _isConnecting ? null : _connectGoogle,
+                icon: _isConnecting
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.add_rounded, size: 16),
+                label: Text(
+                  _isConnecting ? 'Connecting…' : 'Connect Google Calendar',
+                  style:
+                      GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.secondary,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── CalendarEvent model ───────────────────────────────────────────────────────
+
+class CalendarEvent {
+  final String id;
+  final String title;
+  final String source; // 'google_calendar' | 'canvas' | 'personal'
+  final DateTime date;
+  final String startTime; // 'HH:mm'
+  final String endTime;
+  final String location;
+  final String courseCode;
+  final String description;
+  final bool isAllDay;
+
+  const CalendarEvent({
+    required this.id,
+    required this.title,
+    required this.source,
+    required this.date,
+    required this.startTime,
+    required this.endTime,
+    required this.location,
+    required this.courseCode,
+    required this.description,
+    required this.isAllDay,
+  });
+}
