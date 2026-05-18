@@ -10,6 +10,9 @@ import './widgets/dashboard_header_widget.dart';
 import './widgets/dashboard_metrics_widget.dart';
 import './widgets/dashboard_tasks_widget.dart';
 import './widgets/quick_add_sheet_widget.dart';
+import '../../repositories/task_repository.dart';
+import '../../repositories/assignment_repository.dart';
+import '../../repositories/calendar_repository.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -30,34 +33,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   List<ChartDataItem> _chartData = [];
   DateTime _lastSynced = DateTime.now();
 
-  // Hardcoded tasks (local only — no backend needed for personal tasks)
-  final List<Map<String, dynamic>> _tasksMaps = [
-    {
-      'id': 't1',
-      'title': 'Review lecture notes from yesterday',
-      'dueDate': 'Today',
-      'priority': 'high',
-      'completed': false,
-      'source': 'personal',
-    },
-    {
-      'id': 't2',
-      'title': 'Book library study room for group project',
-      'dueDate': 'Today',
-      'priority': 'medium',
-      'completed': false,
-      'source': 'personal',
-    },
-    {
-      'id': 't3',
-      'title': 'Email tutor about assignment extension',
-      'dueDate': 'Tomorrow',
-      'priority': 'high',
-      'completed': false,
-      'source': 'personal',
-    },
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -69,7 +44,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       parent: _entranceController,
       curve: Curves.easeOut,
     );
-    _tasks = _tasksMaps.map(TaskItem.fromMap).toList();
     _loadData();
   }
 
@@ -92,12 +66,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     final results = await Future.wait([
       _loadClasses(),
       _loadAssignments(),
+      _loadTasks(),
     ]);
 
     if (!mounted) return;
     setState(() {
       _classes = results[0] as List<ClassItem>;
       _assignments = results[1] as List<AssignmentItem>;
+      _tasks = results[2] as List<TaskItem>;
       _chartData = _buildChartData(_assignments);
       _lastSynced = DateTime.now();
       _isLoading = false;
@@ -107,53 +83,15 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<List<ClassItem>> _loadClasses() async {
-    try {
-      final today = DateTime.now();
-      final calendarEvents = await GoogleCalendarService.instance.fetchEvents(
-        start: today,
-        end: today,
-      );
-
-      return calendarEvents
-          .where((e) => !e.isAllDay && e.endTime != '23:59')
-          .map((e) => ClassItem(
-                id: e.id,
-                courseName: e.title,
-                courseCode: e.courseCode.isNotEmpty
-                    ? e.courseCode
-                    : _inferCourseCode(e.title),
-                startTime: e.startTime,
-                endTime: e.endTime,
-                location: e.location,
-                color: _colorForCourseCode(e.courseCode),
-                instructor: '',
-              ))
-          .toList();
-    } catch (_) {
-      return [];
-    }
+    return await CalendarRepository.instance.getClasses();
   }
 
   Future<List<AssignmentItem>> _loadAssignments() async {
-    try {
-      final canvasItems = await CanvasService.instance.fetchAssignments();
+    return await AssignmentRepository.instance.getAssignments();
+  }
 
-      // Convert AssignmentManagerItem → AssignmentItem (dashboard view)
-      return canvasItems.take(8).map((a) {
-        return AssignmentItem(
-          id: a.id,
-          title: a.title,
-          courseName: a.courseName,
-          courseCode: a.courseCode,
-          courseColor: a.courseColor,
-          dueDate: a.dueDate,
-          status: a.status,
-          points: a.points,
-        );
-      }).toList();
-    } catch (_) {
-      return [];
-    }
+  Future<List<TaskItem>> _loadTasks() async {
+    return await TaskRepository.instance.getTasks();
   }
 
   Future<void> _onRefresh() async {
@@ -232,13 +170,15 @@ class _DashboardScreenState extends State<DashboardScreen>
     return 'teal';
   }
 
-  void _onTaskToggle(String id) {
-    setState(() {
-      final idx = _tasks.indexWhere((t) => t.id == id);
-      if (idx != -1) {
-        _tasks[idx] = _tasks[idx].copyWith(completed: !_tasks[idx].completed);
-      }
-    });
+  void _onTaskToggle(String id) async {
+    final idx = _tasks.indexWhere((t) => t.id == id);
+    if (idx != -1) {
+      final newStatus = !_tasks[idx].completed;
+      setState(() {
+        _tasks[idx] = _tasks[idx].copyWith(completed: newStatus);
+      });
+      await TaskRepository.instance.toggleTaskCompletion(id, newStatus);
+    }
   }
 
   void _showQuickAdd() {
@@ -247,7 +187,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => QuickAddSheetWidget(
-        onTaskAdded: (task) => setState(() => _tasks.insert(0, task)),
+        onTaskAdded: (task) async {
+          setState(() => _tasks.insert(0, task));
+          await TaskRepository.instance.addTask(task);
+        },
       ),
     );
   }
