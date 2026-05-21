@@ -69,11 +69,41 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
 
   Future<void> _connectGoogle() async {
     setState(() => _isConnecting = true);
-    final ok = await GoogleCalendarService.instance.signIn();
-    if (ok) {
-      await _loadCalendarEvents(_focusedMonth);
+    try {
+      final ok = await GoogleCalendarService.instance.signIn();
+      if (ok) {
+        await _loadCalendarEvents(_focusedMonth);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Successfully connected to Google Calendar!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to connect. Please ensure your Gmail is whitelisted in your Google Cloud Console\'s "Test Users" list, and that your Vercel backend is fully deployed.'),
+              duration: Duration(seconds: 8),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isConnecting = false);
     }
-    if (mounted) setState(() => _isConnecting = false);
   }
 
   // ── Event helpers ─────────────────────────────────────────────────────────────

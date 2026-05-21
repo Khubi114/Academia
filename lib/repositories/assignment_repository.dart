@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../services/supabase_service.dart';
 import '../presentation/dashboard_screen/dashboard_screen.dart';
 
@@ -9,12 +10,13 @@ class AssignmentRepository {
 
   Future<List<AssignmentItem>> getAssignments() async {
     try {
-      final userId = SupabaseService.instance.userId;
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return [];
+
       final response = await _supabase
           .from('assignments')
           .select()
-          .eq('user_id', userId)
-          .order('due_date', ascending: true);
+          .eq('user_id', userId);
 
       return (response as List).map((a) => AssignmentItem(
         id: a['id'].toString(),
@@ -27,7 +29,7 @@ class AssignmentRepository {
         points: a['points'] ?? 0,
       )).toList();
     } catch (e) {
-      print('Error fetching assignments: $e');
+      debugPrint('Error fetching assignments: $e');
       return [];
     }
   }

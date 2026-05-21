@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../services/supabase_service.dart';
 import '../presentation/dashboard_screen/dashboard_screen.dart';
 
@@ -27,7 +28,7 @@ class CalendarRepository {
         instructor: c['instructor'],
       )).toList();
     } catch (e) {
-      print('Error fetching classes: $e');
+      debugPrint('Error fetching classes: $e');
       return [];
     }
   }

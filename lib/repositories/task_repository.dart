@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../services/supabase_service.dart';
 import '../presentation/dashboard_screen/dashboard_screen.dart'; // using TaskItem from here
 
@@ -25,7 +26,7 @@ class TaskRepository {
         source: task['source'] ?? 'personal',
       )).toList();
     } catch (e) {
-      print('Error fetching tasks: $e');
+      debugPrint('Error fetching tasks: $e');
       return [];
     }
   }
@@ -42,7 +43,7 @@ class TaskRepository {
         'source': task.source,
       });
     } catch (e) {
-      print('Error adding task: $e');
+      debugPrint('Error adding task: $e');
     }
   }
 
@@ -53,7 +54,7 @@ class TaskRepository {
           .update({'completed': completed})
           .eq('id', taskId);
     } catch (e) {
-      print('Error toggling task: $e');
+      debugPrint('Error toggling task: $e');
     }
   }
 }

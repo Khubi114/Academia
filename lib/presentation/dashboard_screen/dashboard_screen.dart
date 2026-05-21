@@ -1,8 +1,6 @@
 import '../../core/app_export.dart';
 import '../../services/google_calendar_service.dart';
 import '../../services/canvas_service.dart';
-import '../calendar_view_screen/calendar_view_screen.dart';
-import '../assignment_manager_screen/assignment_manager_screen.dart';
 import './widgets/dashboard_assignments_widget.dart';
 import './widgets/dashboard_chart_widget.dart';
 import './widgets/dashboard_classes_widget.dart';
@@ -101,15 +99,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   // ── Metric helpers ─────────────────────────────────────────────────────────
 
-  String get _syncSubtitle {
-    if (!CanvasService.instance.isConnected) return 'Canvas LMS · Not connected';
-    if (_lastSynced == null) return 'Canvas LMS · Syncing…';
-    final diff = DateTime.now().difference(_lastSynced!);
-    if (diff.inMinutes < 1) return 'Canvas LMS · Just synced';
-    if (diff.inMinutes < 60) return 'Canvas LMS · Synced ${diff.inMinutes}m ago';
-    return 'Canvas LMS · Synced ${diff.inHours}h ago';
-  }
-
   int get _dueTodayCount {
     final today = DateTime.now();
     return _assignments
@@ -150,24 +139,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       final completed = i < 5 ? (total * 0.6 + i * 0.1).round().clamp(0, total) : 0;
       return ChartDataItem(day: dayLabel, completed: completed, total: total);
     });
-  }
-
-  String _inferCourseCode(String title) {
-    final match = RegExp(r'^([A-Z]{2,4}\s?\d{3})').firstMatch(title);
-    return match?.group(0)?.trim() ?? '';
-  }
-
-  String _colorForCourseCode(String courseCode) {
-    final upper = courseCode.toUpperCase();
-    if (upper.startsWith('COS') ||
-        upper.startsWith('TNE') ||
-        upper.startsWith('SWE') ||
-        upper.startsWith('CS') ||
-        upper.startsWith('INF')) return 'primary';
-    if (upper.startsWith('MAT') ||
-        upper.startsWith('STA') ||
-        upper.startsWith('PHY')) return 'secondary';
-    return 'teal';
   }
 
   void _onTaskToggle(String id) async {

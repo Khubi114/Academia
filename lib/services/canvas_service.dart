@@ -4,7 +4,6 @@
 // Token is stored securely on-device (OS keychain via flutter_secure_storage).
 // No server proxy needed — Canvas tokens are long-lived personal access tokens.
 
-import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -205,7 +204,7 @@ class CanvasService {
         submission['workflow_state'] == 'graded' &&
         submission['score'] != null;
     final pointsEarned =
-        graded ? (submission?['score'] as num?)?.toInt() : null;
+        graded ? (submission['score'] as num?)?.toInt() : null;
 
     final status = _resolveStatus(
       dueDate: dueDate,
