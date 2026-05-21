@@ -70,7 +70,20 @@ class GoogleCalendarService {
   /// server auth code to Vercel to exchange for a refresh token.
   Future<bool> signIn() async {
     try {
-      // 1. Sign in anonymously to Supabase so we have a user_id
+      // 1. Trigger Google sign-in (account picker) immediately to avoid browser popup blockers.
+      // Modern browsers require popups to be opened synchronously from user gestures;
+      // putting any asynchronous call (like Supabase init) first will break the user gesture chain.
+      final GoogleSignInAccount? account = await _googleSignIn.signIn();
+      if (account == null) return false; // user cancelled
+
+      // 2. Get server auth code
+      final String? serverAuthCode = account.serverAuthCode;
+      if (serverAuthCode == null) {
+        debugPrint('[GCalService] No serverAuthCode — check serverClientId');
+        return false;
+      }
+
+      // 3. Sign in anonymously to Supabase (now safe to do asynchronously)
       final supabase = Supabase.instance.client;
       if (supabase.auth.currentUser == null) {
         await supabase.auth.signInAnonymously();
@@ -79,17 +92,6 @@ class GoogleCalendarService {
       final String? userId = supabase.auth.currentUser?.id;
       if (userId == null) {
         debugPrint('[GCalService] Could not get Supabase user ID');
-        return false;
-      }
-
-      // 2. Trigger Google sign-in (account picker)
-      final GoogleSignInAccount? account = await _googleSignIn.signIn();
-      if (account == null) return false; // user cancelled
-
-      // 3. Get server auth code
-      final String? serverAuthCode = account.serverAuthCode;
-      if (serverAuthCode == null) {
-        debugPrint('[GCalService] No serverAuthCode — check serverClientId');
         return false;
       }
 
