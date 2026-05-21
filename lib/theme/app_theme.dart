@@ -3,20 +3,20 @@ import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // Brand colors
-  static const Color primary = Color(0xFF4F46E5);
+  static const Color primary = Color(0xFF6F1D1B);
   static const Color primaryContainer = Color(0xFFEEEDFD);
   static const Color primaryContainerDark = Color(0xFF2D2B6B);
   static const Color secondary = Color(0xFF0EA5E9);
   static const Color secondaryContainer = Color(0xFFE0F2FE);
-  static const Color canvasAmber = Color(0xFFF59E0B);
+  static const Color canvasAmber = Color(0xFF99582A);
   static const Color canvasAmberContainer = Color(0xFFFEF3C7);
-  static const Color personalTeal = Color(0xFF14B8A6);
+  static const Color personalTeal = Color(0xFFBB9457);
   static const Color personalTealContainer = Color(0xFFCCFBF1);
-  static const Color success = Color(0xFF10B981);
+  static const Color success = Color(0xFF6B4B3E);
   static const Color successContainer = Color(0xFFD1FAE5);
-  static const Color warning = Color(0xFFF59E0B);
+  static const Color warning = Color(0xFF582B0E);
   static const Color warningContainer = Color(0xFFFEF3C7);
-  static const Color errorRed = Color(0xFFEF4444);
+  static const Color errorRed = Color(0xFF361D2E);
   static const Color errorContainer = Color(0xFFFEE2E2);
 
   // Light theme surfaces
