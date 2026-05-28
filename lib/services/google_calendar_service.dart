@@ -68,34 +68,50 @@ class GoogleCalendarService {
 
   /// Signs the user in with Google (shows account picker) and sends the
   /// server auth code to Vercel to exchange for a refresh token.
-  Future<bool> signIn() async {
+  ///
+  /// Returns `null` on success, or a human-readable error string on failure.
+  Future<String?> signIn() async {
     try {
       // 1. Trigger Google sign-in (account picker) immediately to avoid browser popup blockers.
       // Modern browsers require popups to be opened synchronously from user gestures;
       // putting any asynchronous call (like Supabase init) first will break the user gesture chain.
+      debugPrint('[GCalService] Starting Google sign-in…');
       final GoogleSignInAccount? account = await _googleSignIn.signIn();
-      if (account == null) return false; // user cancelled
+      if (account == null) {
+        debugPrint('[GCalService] User cancelled sign-in');
+        return 'cancelled';
+      }
+      debugPrint('[GCalService] Signed in as ${account.email}');
 
-      // 2. Get server auth code
+      // 2. Get server auth code — requires a valid Web Application OAuth client ID
       final String? serverAuthCode = account.serverAuthCode;
       if (serverAuthCode == null) {
-        debugPrint('[GCalService] No serverAuthCode — check serverClientId');
-        return false;
+        debugPrint(
+          '[GCalService] serverAuthCode is null.\n'
+          '  → Make sure serverClientId is your Web Application OAuth 2.0 client ID\n'
+          '  → NOT the Android or iOS client ID.\n'
+          '  → Current value: $_serverClientId',
+        );
+        return 'no_auth_code';
       }
+      debugPrint('[GCalService] Got serverAuthCode (length: ${serverAuthCode.length})');
 
       // 3. Sign in anonymously to Supabase (now safe to do asynchronously)
       final supabase = Supabase.instance.client;
       if (supabase.auth.currentUser == null) {
+        debugPrint('[GCalService] No Supabase session — signing in anonymously…');
         await supabase.auth.signInAnonymously();
       }
 
       final String? userId = supabase.auth.currentUser?.id;
       if (userId == null) {
         debugPrint('[GCalService] Could not get Supabase user ID');
-        return false;
+        return 'no_supabase_user';
       }
+      debugPrint('[GCalService] Supabase user ID: $userId');
 
       // 4. Send to Vercel for token exchange
+      debugPrint('[GCalService] Calling $_vercelBaseUrl/api/calendar/exchange…');
       final response = await _dio.post(
         '$_vercelBaseUrl/api/calendar/exchange',
         data: {'server_auth_code': serverAuthCode, 'user_id': userId},
@@ -103,18 +119,20 @@ class GoogleCalendarService {
 
       if (response.statusCode == 200) {
         _isConnected = true;
-        debugPrint('[GCalService] Connected successfully');
-        return true;
+        debugPrint('[GCalService] Connected successfully: ${response.data}');
+        return null; // success
       }
 
-      debugPrint('[GCalService] Exchange failed: ${response.data}');
-      return false;
+      debugPrint('[GCalService] Exchange failed (${response.statusCode}): ${response.data}');
+      return 'exchange_failed_${response.statusCode}';
     } on DioException catch (e) {
-      debugPrint('[GCalService] signIn DioException: ${e.message}');
-      return false;
+      final status = e.response?.statusCode;
+      final body = e.response?.data;
+      debugPrint('[GCalService] signIn DioException ($status): ${e.message}\nBody: $body');
+      return 'network_error: ${e.message} (status: $status, body: $body)';
     } catch (e) {
-      debugPrint('[GCalService] signIn error: $e');
-      return false;
+      debugPrint('[GCalService] signIn unexpected error: $e');
+      return 'unexpected: $e';
     }
   }
 

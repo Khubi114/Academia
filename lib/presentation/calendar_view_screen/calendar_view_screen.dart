@@ -70,8 +70,9 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
   Future<void> _connectGoogle() async {
     setState(() => _isConnecting = true);
     try {
-      final ok = await GoogleCalendarService.instance.signIn();
-      if (ok) {
+      final error = await GoogleCalendarService.instance.signIn();
+      if (error == null) {
+        // Success
         await _loadCalendarEvents(_focusedMonth);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -81,12 +82,15 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
             ),
           );
         }
+      } else if (error == 'cancelled') {
+        // User dismissed — no message needed
       } else {
         if (mounted) {
+          final message = _friendlyError(error);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to connect. Please ensure your Gmail is whitelisted in your Google Cloud Console\'s "Test Users" list, and that your Vercel backend is fully deployed.'),
-              duration: Duration(seconds: 8),
+            SnackBar(
+              content: Text(message),
+              duration: const Duration(seconds: 10),
               backgroundColor: Colors.redAccent,
             ),
           );
@@ -96,7 +100,7 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text('Unexpected error: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -104,6 +108,30 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
     } finally {
       if (mounted) setState(() => _isConnecting = false);
     }
+  }
+
+  String _friendlyError(String code) {
+    if (code == 'no_auth_code') {
+      return 'Sign-in failed: no server auth code received. '
+          'Make sure the OAuth Client ID in your app is the '
+          '"Web application" type (not Android/iOS).';
+    }
+    if (code == 'no_supabase_user') {
+      return 'Could not create a session. Check your Supabase URL and anon key.';
+    }
+    if (code.startsWith('exchange_failed_500')) {
+      return 'The Vercel backend returned an error. Check that '
+          'GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SUPABASE_URL and '
+          'SUPABASE_SERVICE_ROLE_KEY are set in your Vercel project settings.';
+    }
+    if (code.startsWith('exchange_failed_')) {
+      return 'Token exchange failed ($code). Check Vercel function logs for details.';
+    }
+    if (code.startsWith('network_error')) {
+      return 'Network error reaching Vercel backend. '
+          'Check your internet connection and that the deployment is live.\n$code';
+    }
+    return 'Connection failed: $code';
   }
 
   // ── Event helpers ─────────────────────────────────────────────────────────────
