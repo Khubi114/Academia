@@ -78,7 +78,7 @@ GOOGLE_CLIENT_SECRET        = GOCSPX-...
 # </resources>
 #
 # Also add to android/app/build.gradle.kts inside defaultConfig:
-#   manifestPlaceholders["appAuthRedirectScheme"] = "com.example.studysync"
+#   manifestPlaceholders["appAuthRedirectScheme"] = "com.example.academia"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

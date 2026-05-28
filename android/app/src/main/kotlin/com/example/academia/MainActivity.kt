@@ -1,4 +1,4 @@
-package com.example.studysync
+package com.example.academia
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.android.FlutterFragmentActivity
