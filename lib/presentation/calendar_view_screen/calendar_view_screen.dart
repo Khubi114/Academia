@@ -411,74 +411,78 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
   }
 
   Widget _buildEmptyDay(ThemeData theme) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 60),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(
-                Icons.event_available_outlined,
-                size: 26,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Nothing scheduled',
-              style: GoogleFonts.manrope(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _calendarConnected
-                  ? 'Free day — enjoy it!'
-                  : 'Connect Google Calendar to see your events',
-              style: GoogleFonts.manrope(
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            if (!_calendarConnected) ...[
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _isConnecting ? null : _connectGoogle,
-                icon: _isConnecting
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.add_rounded, size: 16),
-                label: Text(
-                  _isConnecting ? 'Connecting…' : 'Connect Google Calendar',
-                  style:
-                      GoogleFonts.manrope(fontSize: 13, fontWeight: FontWeight.w600),
+    return SingleChildScrollView(
+      physics: const ClampingScrollPhysics(),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.secondary,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
+                child: Icon(
+                  Icons.event_available_outlined,
+                  size: 26,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
+              const SizedBox(height: 12),
+              Text(
+                'Nothing scheduled',
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _calendarConnected
+                    ? 'Free day — enjoy it!'
+                    : 'Connect Google Calendar to see your events',
+                style: GoogleFonts.manrope(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (!_calendarConnected) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _isConnecting ? null : _connectGoogle,
+                  icon: _isConnecting
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.add_rounded, size: 16),
+                  label: Text(
+                    _isConnecting ? 'Connecting…' : 'Connect Google Calendar',
+                    style: GoogleFonts.manrope(
+                        fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.secondary,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
