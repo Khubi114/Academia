@@ -1,97 +1,104 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# PUBSPEC.YAML — add these two packages under `dependencies:`
-# ─────────────────────────────────────────────────────────────────────────────
+# Academia — setup, migration & testing
 
-  google_sign_in: ^6.2.1       # Google OAuth — gets the server auth code
-  supabase_flutter: ^2.5.0     # Supabase client — reads cached events + auth
+## Architecture
 
+```
+Flutter app ──Bearer <Supabase JWT>──► Vercel functions (api/) ──► Google Calendar API
+    │                                        │ ├─────────────────► Canvas REST API
+    │ (reads own rows via RLS)               ▼
+    └────────────────────────────────► Supabase (Postgres + auth)
+```
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN.DART — add Supabase init before runApp
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# In lib/main.dart, inside main(), before runApp(MyApp()):
-#
-#   await Supabase.initialize(
-#     url: const String.fromEnvironment('SUPABASE_URL'),
-#     anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
-#   );
-#
-# Then build/run with:
-#   flutter run \
-#     --dart-define=SUPABASE_URL=https://xxxx.supabase.co \
-#     --dart-define=SUPABASE_ANON_KEY=eyJ... \
-#     --dart-define=GOOGLE_WEB_CLIENT_ID=123456.apps.googleusercontent.com \
-#     --dart-define=VERCEL_BASE_URL=https://your-app.vercel.app
+| Concern | Where |
+|---|---|
+| Build-time config | `lib/core/app_config.dart` |
+| Authenticated backend calls | `lib/services/api_client.dart` |
+| Google Calendar (sign-in, read, create) | `lib/services/google_calendar_service.dart` |
+| Canvas (connect, fetch, diff) | `lib/services/canvas_service.dart`, `change_detector.dart` |
+| Periodic + on-resume sync, change toasts | `lib/services/sync_service.dart` |
+| Connect / disconnect UI | `lib/widgets/integrations_sheet.dart` |
+| Design tokens & theme | `lib/theme/` |
+| Backend endpoints | `api/calendar/*`, `api/canvas/*` |
+| Backend logic (unit-tested) | `api/_lib/*` |
 
+### How sync works
+* **Google Calendar** — first sync downloads −30/+180 days and stores Google's
+  `syncToken`. Every later sync sends the token and receives *only* events that
+  were created, edited or deleted (`api/_lib/calendarSync.js`). The app syncs
+  every 5 min and whenever it returns to the foreground.
+* **Canvas** — every 15 min / on resume. Courses, assignments and modules are
+  fetched, hashed and compared with the stored rows; only differences are
+  written (`api/canvas/sync.js`). The app also diffs against a snapshot kept on
+  the device and shows a toast such as *"Canvas: 2 new, 1 updated"*.
+* **Canvas → Google Calendar** (opt-in switch in *Connections*): each assignment
+  becomes a 30-min event ending at its deadline. Event ids are derived from the
+  assignment id, so retries can never create duplicates; changed due dates
+  patch the same event, removed assignments delete it.
 
-# ─────────────────────────────────────────────────────────────────────────────
-# VERCEL — environment variables to set in the Vercel dashboard
-# (Project → Settings → Environment Variables)
-# ─────────────────────────────────────────────────────────────────────────────
+### Security changes
+* Every endpoint now verifies the caller's Supabase JWT; the user id is never
+  taken from the request body (before, anyone knowing a UUID could read that
+  user's events).
+* `api/auth/google/callback.js` was **deleted** — it returned Google tokens to
+  the client and nothing used it.
+* Canvas domains are restricted to `*.instructure.com` (+ `CANVAS_ALLOWED_DOMAINS`)
+  so the server can't be used to reach internal hosts.
+* The Canvas token that was hard-coded in `canvas_service.dart` is gone.
+  **It is still in git history — revoke it in Canvas (Account → Settings →
+  Approved Integrations) and create a new one from inside the app.**
 
-SUPABASE_URL                = https://xxxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY   = eyJ...   # Settings → API → service_role key
-GOOGLE_CLIENT_ID            = 123456.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET        = GOCSPX-...
+## Migration (replace old → new)
 
+1. `git pull` this branch, then `flutter pub get`.
+2. **Supabase SQL editor**: run `supabase_migration_002_sync.sql`
+   (idempotent; `supabase_migration.sql` must already have been run).
+3. **Vercel** env vars (Project → Settings → Environment Variables):
+   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_CLIENT_ID`,
+   `GOOGLE_CLIENT_SECRET`; optional `CANVAS_ALLOWED_DOMAINS`
+   (comma-separated, e.g. `canvas.myuni.edu`).
+   Deploy from the repo root (`vercel.json` sets a 60 s function limit).
+4. **Google Cloud Console** → OAuth consent screen → add scopes
+   `…/auth/calendar.readonly` and `…/auth/calendar.events`
+   (add yourself as a test user while the app is unverified).
+5. Run the app: `flutter run --dart-define-from-file=env.json`
+   (`env.json` keys: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `VERCEL_BASE_URL`,
+   `GOOGLE_WEB_CLIENT_ID`, `CANVAS_BASE_URL`). Do **not** put a Canvas token in it.
+6. Users who connected Google Calendar before this update only granted
+   read access; the *Connections* sheet shows "Reconnect to allow adding
+   events" until they reconnect once.
 
-# ─────────────────────────────────────────────────────────────────────────────
-# VERCEL — package.json for the api/ folder
-# Create api/package.json with:
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# {
-#   "dependencies": {
-#     "@supabase/supabase-js": "^2.43.0",
-#     "googleapis": "^140.0.0"
-#   }
-# }
+Dependencies: no new Flutter packages. The API needs Node ≥ 18
+(`cd api && npm install`).
 
+## Testing
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GOOGLE CLOUD CONSOLE — one-time setup (all free)
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# 1. Create a project at console.cloud.google.com
-# 2. Enable "Google Calendar API"
-# 3. OAuth consent screen → External → add your email as test user
-# 4. Credentials → Create OAuth 2.0 Client ID:
-#    - Type: Web application
-#    - Authorized redirect URIs: (leave blank for server auth code flow)
-#    → This gives you GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET for Vercel
-# 5. Credentials → Create OAuth 2.0 Client ID:
-#    - Type: Android (use your app's package name from AndroidManifest.xml)
-#    - Type: iOS (use your bundle ID from Info.plist)
-#    → These are needed by google_sign_in on device (no secret needed for mobile)
-#
-# The "Web application" client ID is what goes in GOOGLE_WEB_CLIENT_ID
-# (dart-define) AND serverClientId in GoogleCalendarService.
+Automated:
+```bash
+cd api && npm install && npm test     # 12 backend tests (mapping, diff, scopes, event ids…)
+flutter test                          # change-detection tests
+flutter analyze
+```
 
+Manual — Google Calendar
+1. Open **Dashboard → ⇄ (top right)** → *Connect Google Calendar*; tick **both**
+   permission boxes. Status turns to "Connected".
+2. Open **Calendar**: your events appear. In Google Calendar (web/phone) add an
+   event for today; within 5 min (or tap *Sync now*) it appears in the app with a toast.
+3. Edit its title / delete it in Google Calendar → the app follows on the next sync.
+4. In the app tap **+**, choose *Google Calendar*, save → the event appears in Google Calendar.
+5. Untick a permission on the consent screen → the app shows the "needs permission" message.
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ANDROID — add to android/app/src/main/res/values/strings.xml
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# <resources>
-#   <string name="default_web_client_id">YOUR_WEB_CLIENT_ID</string>
-# </resources>
-#
-# Also add to android/app/build.gradle.kts inside defaultConfig:
-#   manifestPlaceholders["appAuthRedirectScheme"] = "com.example.academia"
+Manual — Canvas
+1. **Assignments** (or *Connections*) → paste your Canvas address and a new access token → *Connect*.
+   A wrong token shows "Canvas token is invalid or expired".
+2. Assignments load; the Dashboard fills after the first sync (it reads Supabase).
+3. In Canvas change a due date or publish a new assignment → *Sync now* → toast
+   "Canvas: 1 new" / "1 updated" and the list updates.
+4. Turn on *Add due dates to Google Calendar* → events named `COURSE: title`
+   appear in Google Calendar. Move the due date in Canvas and sync: the same
+   event moves (no duplicate). Submit an assignment: its event gets a ✓.
+5. *Disconnect* clears the token from the device and the server.
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# IOS — add to ios/Runner/Info.plist
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# <key>CFBundleURLTypes</key>
-# <array>
-#   <dict>
-#     <key>CFBundleURLSchemes</key>
-#     <array>
-#       <!-- Reversed iOS client ID from Google Cloud Console -->
-#       <string>com.googleusercontent.apps.YOUR_IOS_CLIENT_ID</string>
-#     </array>
-#   </dict>
-# </array>
+Known limits: sync runs while the app is open (no OS background scheduler yet);
+dark theme exists but the app stays in light mode because several widgets still
+use light-only container colors.

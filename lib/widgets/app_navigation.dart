@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../routes/app_routes.dart';
+import '../theme/design_tokens.dart';
 
 class AppNavigation extends StatelessWidget {
   final int currentIndex;
@@ -79,70 +80,66 @@ class _PhoneBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
+    final scheme = theme.colorScheme;
+
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border(
-          top: BorderSide(
-            color: theme.colorScheme.outline.withAlpha(128),
-            width: 1,
-          ),
-        ),
+        color: scheme.surface,
+        border: Border(top: BorderSide(color: scheme.outlineVariant)),
       ),
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 64,
+          height: 68,
           child: Row(
             children: List.generate(items.length, (index) {
               final item = items[index];
               final isActive = currentIndex == index;
+              final color = isActive ? scheme.primary : scheme.onSurfaceVariant;
+
               return Expanded(
-                child: GestureDetector(
-                  onTap: () => onTap(index),
-                  behavior: HitTestBehavior.opaque,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 200),
-                        child: Icon(
-                          isActive ? item.activeIcon : item.icon,
-                          key: ValueKey(isActive),
-                          size: 24,
-                          color: isActive
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      AnimatedOpacity(
-                        opacity: isActive ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 200),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          width: isActive ? 4 : 0,
-                          height: 4,
+                child: Semantics(
+                  button: true,
+                  selected: isActive,
+                  label: item.label,
+                  child: InkResponse(
+                    onTap: () => onTap(index),
+                    highlightShape: BoxShape.rectangle,
+                    borderRadius: AppRadius.control,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Pill that grows behind the active icon.
+                        AnimatedContainer(
+                          duration: AppMotion.base,
+                          curve: AppMotion.enter,
+                          width: isActive ? 56 : 32,
+                          height: 32,
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            borderRadius: BorderRadius.circular(2),
+                            color: isActive
+                                ? scheme.primaryContainer
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(
+                            isActive ? item.activeIcon : item.icon,
+                            size: 22,
+                            color: color,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      AnimatedOpacity(
-                        opacity: isActive ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 200),
-                        child: Text(
-                          item.label,
+                        const SizedBox(height: AppSpacing.xxs),
+                        AnimatedDefaultTextStyle(
+                          duration: AppMotion.base,
                           style: GoogleFonts.manrope(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.primary,
+                            fontSize: 11,
+                            fontWeight:
+                                isActive ? FontWeight.w700 : FontWeight.w500,
+                            color: color,
                           ),
+                          child: Text(item.label),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -216,7 +213,8 @@ class AppScaffold extends StatefulWidget {
 }
 
 class _AppScaffoldState extends State<AppScaffold> {
-  // TODO: Replace with Riverpod/Bloc for production navigation state
+  // Tabs replace each other (no back stack); the fade-through page transition
+  // in AppTheme keeps switching smooth.
   void _onNavTap(int index) {
     if (index == widget.currentIndex) return;
     const routes = [
@@ -238,7 +236,7 @@ class _AppScaffoldState extends State<AppScaffold> {
             AppNavigation(currentIndex: widget.currentIndex, onTap: _onNavTap),
             VerticalDivider(
               width: 1,
-              color: Theme.of(context).colorScheme.outline.withAlpha(77),
+              color: Theme.of(context).colorScheme.outlineVariant,
             ),
             Expanded(child: widget.body),
           ],

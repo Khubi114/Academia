@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import '../../core/app_export.dart';
 import '../../services/google_calendar_service.dart';
 import '../../services/canvas_service.dart';
+import '../../services/sync_service.dart';
 import './widgets/dashboard_assignments_widget.dart';
 import './widgets/dashboard_chart_widget.dart';
 import './widgets/dashboard_classes_widget.dart';
@@ -30,6 +33,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   List<TaskItem> _tasks = [];
   List<ChartDataItem> _chartData = [];
   DateTime _lastSynced = DateTime.now();
+  StreamSubscription<dynamic>? _syncSub;
 
   @override
   void initState() {
@@ -43,10 +47,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       curve: Curves.easeOut,
     );
     _loadData();
+
+    // Refresh the lists quietly whenever a sync finds changes.
+    _syncSub = SyncService.instance.reports.listen((report) {
+      if (report.hasChanges && mounted) _reloadSilently();
+    });
   }
 
   @override
   void dispose() {
+    _syncSub?.cancel();
     _entranceController.dispose();
     super.dispose();
   }
@@ -93,8 +103,27 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _onRefresh() async {
-    setState(() => _isLoading = true);
-    await _loadData();
+    // Ask the sync engine first so the database is fresh, then re-read it.
+    await SyncService.instance.syncAll(force: true);
+    if (!mounted) return;
+    await _reloadSilently();
+  }
+
+  /// Re-reads all lists without showing the full-screen spinner.
+  Future<void> _reloadSilently() async {
+    final results = await Future.wait([
+      _loadClasses(),
+      _loadAssignments(),
+      _loadTasks(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _classes = results[0] as List<ClassItem>;
+      _assignments = results[1] as List<AssignmentItem>;
+      _tasks = results[2] as List<TaskItem>;
+      _chartData = _buildChartData(_assignments);
+      _lastSynced = DateTime.now();
+    });
   }
 
   // ── Metric helpers ─────────────────────────────────────────────────────────

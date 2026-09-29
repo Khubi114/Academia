@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/integrations_sheet.dart';
 
 class DashboardHeaderWidget extends StatelessWidget {
   final DateTime lastSynced;
@@ -104,22 +105,22 @@ class DashboardHeaderWidget extends StatelessWidget {
               ],
             ),
           ),
-          GestureDetector(
-            onTap: () {},
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: theme.colorScheme.outline, width: 1),
-                color: theme.colorScheme.surfaceContainerHighest,
+          Tooltip(
+            message: 'Connections',
+            child: Material(
+              color: theme.colorScheme.surfaceContainerHighest,
+              shape: CircleBorder(
+                side: BorderSide(color: theme.colorScheme.outline),
               ),
-              child: Center(
-                child: Text(
-                  'JM',
-                  style: GoogleFonts.manrope(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () => IntegrationsSheet.show(context),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: Icon(
+                    Icons.sync_alt_rounded,
+                    size: 20,
                     color: theme.colorScheme.primary,
                   ),
                 ),
