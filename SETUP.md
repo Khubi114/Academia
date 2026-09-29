@@ -70,6 +70,20 @@ Flutter app ──Bearer <Supabase JWT>──► Vercel functions (api/) ──�
 Dependencies: no new Flutter packages. The API needs Node ≥ 18
 (`cd api && npm install`).
 
+## Android: Google sign-in (error 10)
+
+Google only allows sign-in from apps whose signing key is registered. Every
+build here is signed with `android/app/academia-test.keystore` (a committed
+TEST key), so the fingerprint never changes:
+
+    SHA-1: 6B:B2:BE:EA:1D:B6:3C:38:2B:B9:B2:8E:B8:11:3C:24:A6:8C:E7:A1
+
+Google Cloud Console → APIs & Services → Credentials → Create credentials →
+OAuth client ID → **Android**, package name `com.example.academia`, paste the
+SHA-1. (Keep the existing *Web application* client; the app still uses it as
+`GOOGLE_WEB_CLIENT_ID`.) It can take a few minutes to take effect. Replace the
+keystore with a private one before publishing to the Play Store.
+
 ## Testing
 
 Automated:

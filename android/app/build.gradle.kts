@@ -32,11 +32,25 @@ android {
         manifestPlaceholders["appAuthRedirectScheme"] = "com.example.academia"
     }
 
+    // A fixed TEST key committed to the repo so every build (your machine,
+    // GitHub Actions) has the same SHA-1 — Google sign-in only works for
+    // signing keys registered in Google Cloud. Replace with a private
+    // keystore before publishing to the Play Store.
+    signingConfigs {
+        create("shared") {
+            storeFile = file("academia-test.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("shared")
+        }
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("shared")
         }
     }
 }

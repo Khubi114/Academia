@@ -131,6 +131,11 @@ class GoogleCalendarService extends ChangeNotifier {
       return 'Academia needs permission to view AND edit calendar events. '
           'Please reconnect and leave both boxes ticked.';
     }
+    if (code.contains('sign_in_failed') && code.contains(': 10')) {
+      return 'Google rejected this build (error 10): its signing key is not '
+          'registered. Add the app\'s SHA-1 to an Android OAuth client in '
+          'Google Cloud (see SETUP.md).';
+    }
     if (code == 'no_auth_code') {
       return 'Google did not return a server auth code. Check that '
           'GOOGLE_WEB_CLIENT_ID is a "Web application" client id.';

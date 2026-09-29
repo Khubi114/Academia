@@ -83,7 +83,7 @@ class _IntegrationsSheetState extends State<IntegrationsSheet> {
     if (error == null) {
       _tokenController.clear();
       SyncService.instance.syncCanvas(force: true);
-      _toast('Canvas connected — syncing your courses');
+      _toast(_canvas.backendWarning ?? 'Canvas connected — syncing your courses');
     }
   }
 
