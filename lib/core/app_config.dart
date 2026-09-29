@@ -33,7 +33,7 @@ class AppConfig {
   static const String googleWebClientId = String.fromEnvironment(
     'GOOGLE_WEB_CLIENT_ID',
     defaultValue:
-        '821856499544-pro3mv21j1dkrqiiqf4b0ssbiie3u3u9.apps.googleusercontent.com',
+        '821856499544-somf66064iofvq9o4qchadji05ieod4k.apps.googleusercontent.com',
   );
 
   static const String googleReadScope =

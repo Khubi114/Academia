@@ -56,6 +56,10 @@ class CanvasService extends ChangeNotifier {
   bool _isConnected = false;
   bool _mirrorToCalendar = false;
   DateTime? _lastSynced;
+  String? _backendWarning;
+
+  /// Set after [connect] when the server part failed but Canvas itself works.
+  String? get backendWarning => _backendWarning;
 
   bool get isConnected => _isConnected;
   bool get mirrorToCalendar => _mirrorToCalendar;
@@ -83,15 +87,35 @@ class CanvasService extends ChangeNotifier {
       return 'Enter your Canvas address and access token.';
     }
 
+    // 1. Validate straight against Canvas, so connecting works even when the
+    //    Academia server is unreachable or not yet updated.
     try {
-      // The backend checks the domain is a genuine Canvas host and that the
-      // token works, then saves it for background syncs.
+      await _dio.get<dynamic>(
+        '$cleanUrl/api/v1/users/self',
+        options: Options(headers: {'Authorization': 'Bearer $cleanToken'}),
+      );
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 401 || status == 403) {
+        return 'Canvas rejected that token. Copy it again, or generate a new one.';
+      }
+      if (status != null) return 'Canvas answered with error $status. Check the address.';
+      return 'Could not reach ${Uri.parse(cleanUrl).host}. Check the address and your connection.';
+    }
+
+    // 2. Register the token with the server for background sync + the Google
+    //    Calendar mirror. Failure here does not block the connection.
+    _backendWarning = null;
+    try {
       await _api.post('/api/canvas/connect', body: {
         'domain': Uri.parse(cleanUrl).host,
         'token': cleanToken,
       });
     } on ApiException catch (e) {
-      return e.message;
+      debugPrint('[Canvas] server registration failed: $e');
+      _backendWarning = 'Connected, but the Academia server could not save '
+          'your Canvas link (${e.message}). Assignments work; dashboard sync '
+          'and the calendar mirror need the server updated.';
     }
 
     await _storage.write(key: _baseUrlKey, value: cleanUrl);
