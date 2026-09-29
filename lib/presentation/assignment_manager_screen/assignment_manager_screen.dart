@@ -1,9 +1,15 @@
 
 import '../../core/app_export.dart';
+import '../../models/assignment_item.dart';
 import '../../services/canvas_service.dart';
+import '../../services/sync_service.dart';
+import '../../widgets/integrations_sheet.dart';
 import './widgets/assignment_detail_sheet_widget.dart';
 import './widgets/assignment_filter_bar_widget.dart';
 import './widgets/assignment_list_item_widget.dart';
+
+// Re-exported so existing `import '.../assignment_manager_screen.dart'` keeps working.
+export '../../models/assignment_item.dart';
 
 // TODO: Replace with Riverpod/Bloc for production state management
 class AssignmentManagerScreen extends StatefulWidget {
@@ -36,30 +42,58 @@ class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
       vsync: this,
       duration: const Duration(milliseconds: 280),
     );
+    SyncService.instance.assignments.addListener(_onAssignmentsChanged);
     _loadAssignments();
+  }
+
+  /// Fired by [SyncService] whenever a background or manual sync finishes.
+  void _onAssignmentsChanged() {
+    if (!mounted) return;
+    setState(() {
+      _assignments = SyncService.instance.assignments.value;
+      _lastSynced = CanvasService.instance.lastSynced;
+      _isLoading = false;
+    });
   }
 
   Future<void> _loadAssignments() async {
     await CanvasService.instance.loadCredentials();
-    final items = await CanvasService.instance.fetchAssignments();
+
+    // Paint the cached copy right away, then refresh from Canvas.
+    final cached = SyncService.instance.assignments.value.isNotEmpty
+        ? SyncService.instance.assignments.value
+        : await CanvasService.instance.loadCached();
     if (!mounted) return;
     setState(() {
-      _assignments = items;
+      _assignments = cached;
+      _isLoading = cached.isEmpty && CanvasService.instance.isConnected;
+    });
+    _listController.forward();
+
+    // Not forced: switching tabs must not re-hit Canvas within a minute.
+    await SyncService.instance.syncCanvas();
+    if (!mounted) return;
+    setState(() {
       _lastSynced = CanvasService.instance.lastSynced;
       _isLoading = false;
     });
-    _listController.forward();
   }
 
   Future<void> _onRefresh() async {
     setState(() => _isSyncing = true);
-    final items = await CanvasService.instance.fetchAssignments();
+    await SyncService.instance.syncCanvas(force: true);
     if (!mounted) return;
     setState(() {
-      _assignments = items;
       _lastSynced = CanvasService.instance.lastSynced;
       _isSyncing = false;
     });
+  }
+
+  Future<void> _openConnections() async {
+    await IntegrationsSheet.show(context);
+    if (!mounted) return;
+    setState(() {});
+    if (CanvasService.instance.isConnected) _onRefresh();
   }
 
   List<AssignmentManagerItem> get _filteredAssignments {
@@ -131,6 +165,7 @@ class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
 
   @override
   void dispose() {
+    SyncService.instance.assignments.removeListener(_onAssignmentsChanged);
     _listController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -205,6 +240,14 @@ class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
             ),
           ),
           IconButton(
+            tooltip: 'Connections',
+            onPressed: _openConnections,
+            icon: Icon(
+              Icons.link_rounded,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          IconButton(
             onPressed: () => setState(() {
               _showSearch = !_showSearch;
               if (!_showSearch) {
@@ -269,6 +312,17 @@ class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
   }
 
   Widget _buildBody(ThemeData theme, bool isTablet) {
+    if (!CanvasService.instance.isConnected && _assignments.isEmpty) {
+      return EmptyStateWidget(
+        icon: Icons.school_outlined,
+        title: 'Connect Canvas',
+        description:
+            'Link your Canvas account to see every assignment and due date here.',
+        actionLabel: 'Connect Canvas',
+        onAction: _openConnections,
+      );
+    }
+
     final filtered = _filteredAssignments;
     if (filtered.isEmpty) {
       return EmptyStateWidget(
@@ -325,82 +379,4 @@ class _AssignmentManagerScreenState extends State<AssignmentManagerScreen>
       'completed': _assignments.where((a) => a.submitted).length,
     };
   }
-}
-
-// Data model
-class AssignmentManagerItem {
-  final String id;
-  final String title;
-  final String courseName;
-  final String courseCode;
-  final String courseColor;
-  final String dueDate;
-  final String dueTime;
-  final String dueDateRaw;
-  final String status;
-  final int points;
-  final int? pointsEarned;
-  final bool submitted;
-  final String description;
-  final String submissionType;
-  final bool reminderSet;
-
-  const AssignmentManagerItem({
-    required this.id,
-    required this.title,
-    required this.courseName,
-    required this.courseCode,
-    required this.courseColor,
-    required this.dueDate,
-    required this.dueTime,
-    required this.dueDateRaw,
-    required this.status,
-    required this.points,
-    this.pointsEarned,
-    required this.submitted,
-    required this.description,
-    required this.submissionType,
-    required this.reminderSet,
-  });
-
-  factory AssignmentManagerItem.fromMap(Map<String, dynamic> m) =>
-      AssignmentManagerItem(
-        id: m['id'] as String,
-        title: m['title'] as String,
-        courseName: m['courseName'] as String,
-        courseCode: m['courseCode'] as String,
-        courseColor: m['courseColor'] as String,
-        dueDate: m['dueDate'] as String,
-        dueTime: m['dueTime'] as String,
-        dueDateRaw: m['dueDateRaw'] as String,
-        status: m['status'] as String,
-        points: m['points'] as int,
-        pointsEarned: m['pointsEarned'] as int?,
-        submitted: m['submitted'] as bool,
-        description: m['description'] as String,
-        submissionType: m['submissionType'] as String,
-        reminderSet: m['reminderSet'] as bool,
-      );
-
-  AssignmentManagerItem copyWith({
-    bool? submitted,
-    String? status,
-    bool? reminderSet,
-  }) => AssignmentManagerItem(
-    id: id,
-    title: title,
-    courseName: courseName,
-    courseCode: courseCode,
-    courseColor: courseColor,
-    dueDate: dueDate,
-    dueTime: dueTime,
-    dueDateRaw: dueDateRaw,
-    status: status ?? this.status,
-    points: points,
-    pointsEarned: pointsEarned,
-    submitted: submitted ?? this.submitted,
-    description: description,
-    submissionType: submissionType,
-    reminderSet: reminderSet ?? this.reminderSet,
-  );
 }

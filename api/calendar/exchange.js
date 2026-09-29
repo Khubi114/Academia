@@ -1,70 +1,54 @@
-// api/calendar/exchange.js
-// Vercel serverless function
-// Called once after user signs in with Google on the Flutter app.
-// Receives the server auth code, exchanges it for tokens,
-// and stores the refresh_token in Supabase for future use.
+// POST /api/calendar/exchange
+// Body: { server_auth_code }
+// Called once after the user signs in with Google in the app. Exchanges the
+// one-time server auth code for tokens, verifies the user granted BOTH calendar
+// scopes, stores the refresh token, and kicks off the first sync.
 
-const { createClient } = require('@supabase/supabase-js');
-const { google } = require('googleapis');
+const { endpoint, HttpError } = require('../_lib/http');
+const { supabaseAdmin } = require('../_lib/supabase');
+const { newOAuthClient, REQUIRED_SCOPES } = require('../_lib/google');
+const { syncCalendar } = require('../_lib/calendarSync');
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // service role — never exposed to client
-);
+module.exports = endpoint(['POST'], async ({ userId, body }) => {
+  const code = body.server_auth_code;
+  if (!code) throw new HttpError(400, 'server_auth_code is required');
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  'postmessage' // Flutter uses server auth code flow — no redirect URI needed
-);
+  const { tokens } = await newOAuthClient().getToken(code);
 
-module.exports = async function handler(req, res) {
-  // Only allow POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+  // Users can untick scopes on Google's consent screen — refuse partial grants.
+  const granted = (tokens.scope || '').split(' ');
+  const missing = REQUIRED_SCOPES.filter((s) => !granted.includes(s));
+  if (missing.length) {
+    throw new HttpError(403, 'Missing Google Calendar permissions', { missing });
   }
 
-  const { server_auth_code, user_id } = req.body;
-
-  if (!server_auth_code || !user_id) {
-    return res.status(400).json({ error: 'server_auth_code and user_id are required' });
-  }
-
-  try {
-    // Exchange the auth code for access + refresh tokens
-    const { tokens } = await oauth2Client.getToken(server_auth_code);
-
-    if (!tokens.refresh_token) {
-      // refresh_token is only returned on first auth. If missing, the user
-      // already granted access before — fetch existing token from Supabase.
-      const { data: existing } = await supabase
-        .from('calendar_tokens')
-        .select('refresh_token')
-        .eq('user_id', user_id)
-        .single();
-
-      if (!existing?.refresh_token) {
-        return res.status(400).json({
-          error: 'No refresh token returned and none stored. Ask user to re-authenticate.',
-        });
-      }
-
-      return res.status(200).json({ status: 'already_connected' });
-    }
-
-    // Upsert the refresh token — one row per user
-    const { error: dbError } = await supabase
+  if (tokens.refresh_token) {
+    const { error } = await supabaseAdmin.from('calendar_tokens').upsert(
+      {
+        user_id: userId,
+        refresh_token: tokens.refresh_token,
+        scope: tokens.scope,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+    if (error) throw error;
+  } else {
+    // Google only sends a refresh token on first consent. Fine if we have one.
+    const { data } = await supabaseAdmin
       .from('calendar_tokens')
-      .upsert(
-        { user_id, refresh_token: tokens.refresh_token, updated_at: new Date().toISOString() },
-        { onConflict: 'user_id' }
+      .select('user_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (!data) {
+      throw new HttpError(
+        400,
+        'No refresh token returned and none stored. Remove Academia at ' +
+          'myaccount.google.com/permissions and sign in again.'
       );
-
-    if (dbError) throw dbError;
-
-    return res.status(200).json({ status: 'connected' });
-  } catch (err) {
-    console.error('[exchange] error:', err.message);
-    return res.status(500).json({ error: 'Token exchange failed', detail: err.message });
+    }
   }
-};
+
+  const sync = await syncCalendar(userId);
+  return { status: 'connected', sync };
+});

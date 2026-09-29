@@ -1,9 +1,16 @@
+import 'dart:async';
+
 import '../../core/app_export.dart';
+import '../../models/calendar_event.dart';
 import '../../services/google_calendar_service.dart';
+import '../../services/sync_service.dart';
 import './widgets/add_event_sheet_widget.dart';
 import './widgets/calendar_day_events_widget.dart';
 import './widgets/calendar_legend_widget.dart';
 import './widgets/calendar_month_widget.dart';
+
+// Re-exported so existing `import '.../calendar_view_screen.dart'` keeps working.
+export '../../models/calendar_event.dart';
 
 class CalendarViewScreen extends StatefulWidget {
   const CalendarViewScreen({super.key});
@@ -23,6 +30,7 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
   bool _calendarLoading = true;
   bool _calendarConnected = false;
   bool _isConnecting = false;
+  StreamSubscription<dynamic>? _syncSub;
 
   @override
   void initState() {
@@ -39,18 +47,26 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
       curve: Curves.easeOut,
     );
     _loadCalendarEvents(_focusedMonth);
+
+    // Reload quietly when a sync finds new / changed / deleted events.
+    _syncSub = SyncService.instance.reports.listen((report) {
+      if (report.hasChanges && mounted) {
+        _loadCalendarEvents(_focusedMonth, silent: true);
+      }
+    });
   }
 
   @override
   void dispose() {
+    _syncSub?.cancel();
     _entranceController.dispose();
     super.dispose();
   }
 
   // ── Data loading ─────────────────────────────────────────────────────────────
 
-  Future<void> _loadCalendarEvents(DateTime month) async {
-    setState(() => _calendarLoading = true);
+  Future<void> _loadCalendarEvents(DateTime month, {bool silent = false}) async {
+    if (!silent) setState(() => _calendarLoading = true);
 
     final events =
         await GoogleCalendarService.instance.fetchMonthEvents(month);
@@ -69,69 +85,53 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
 
   Future<void> _connectGoogle() async {
     setState(() => _isConnecting = true);
-    try {
-      final error = await GoogleCalendarService.instance.signIn();
-      if (error == null) {
-        // Success
-        await _loadCalendarEvents(_focusedMonth);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Successfully connected to Google Calendar!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } else if (error == 'cancelled') {
-        // User dismissed — no message needed
-      } else {
-        if (mounted) {
-          final message = _friendlyError(error);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(message),
-              duration: const Duration(seconds: 10),
-              backgroundColor: Colors.redAccent,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Unexpected error: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isConnecting = false);
+    final error = await GoogleCalendarService.instance.signIn();
+    if (!mounted) return;
+    setState(() => _isConnecting = false);
+
+    if (error == null) {
+      await _loadCalendarEvents(_focusedMonth);
+      SyncService.instance.syncAll(force: true);
+      _showMessage('Google Calendar connected');
+    } else if (error != 'cancelled') {
+      _showMessage(GoogleCalendarService.describeError(error));
     }
   }
 
-  String _friendlyError(String code) {
-    if (code == 'no_auth_code') {
-      return 'Sign-in failed: no server auth code received. '
-          'Make sure the OAuth Client ID in your app is the '
-          '"Web application" type (not Android/iOS).';
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Saves a newly added event to Google Calendar when the user picked it as
+  /// the destination, replacing the optimistic local copy with the stored one.
+  Future<void> _saveToGoogle(CalendarEvent local) async {
+    final service = GoogleCalendarService.instance;
+    if (!service.isConnected || service.needsReconnect) {
+      _showMessage(
+        'Saved on this device only — reconnect Google Calendar to allow adding events.',
+      );
+      return;
     }
-    if (code == 'no_supabase_user') {
-      return 'Could not create a session. Check your Supabase URL and anon key.';
+    final saved = await service.createEvent(
+      title: local.title,
+      date: local.date,
+      startTime: local.startTime,
+      endTime: local.endTime,
+      location: local.location,
+      description: local.description,
+    );
+    if (!mounted) return;
+    if (saved == null) {
+      _showMessage('Could not add the event to Google Calendar.');
+      return;
     }
-    if (code.startsWith('exchange_failed_500')) {
-      return 'The Vercel backend returned an error. Check that '
-          'GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SUPABASE_URL and '
-          'SUPABASE_SERVICE_ROLE_KEY are set in your Vercel project settings.';
-    }
-    if (code.startsWith('exchange_failed_')) {
-      return 'Token exchange failed ($code). Check Vercel function logs for details.';
-    }
-    if (code.startsWith('network_error')) {
-      return 'Network error reaching Vercel backend. '
-          'Check your internet connection and that the deployment is live.\n$code';
-    }
-    return 'Connection failed: $code';
+    setState(() {
+      final i = _events.indexWhere((e) => e.id == local.id);
+      if (i != -1) _events[i] = saved;
+    });
   }
 
   // ── Event helpers ─────────────────────────────────────────────────────────────
@@ -166,6 +166,7 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
         selectedDate: _selectedDay,
         onEventAdded: (event) {
           setState(() => _events.add(event));
+          if (event.source == 'google_calendar') _saveToGoogle(event);
         },
       ),
     );
@@ -487,32 +488,4 @@ class _CalendarViewScreenState extends State<CalendarViewScreen>
       ),
     );
   }
-}
-
-// ── CalendarEvent model ───────────────────────────────────────────────────────
-
-class CalendarEvent {
-  final String id;
-  final String title;
-  final String source; // 'google_calendar' | 'canvas' | 'personal'
-  final DateTime date;
-  final String startTime; // 'HH:mm'
-  final String endTime;
-  final String location;
-  final String courseCode;
-  final String description;
-  final bool isAllDay;
-
-  const CalendarEvent({
-    required this.id,
-    required this.title,
-    required this.source,
-    required this.date,
-    required this.startTime,
-    required this.endTime,
-    required this.location,
-    required this.courseCode,
-    required this.description,
-    required this.isAllDay,
-  });
 }

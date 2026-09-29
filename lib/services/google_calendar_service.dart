@@ -1,201 +1,183 @@
 // lib/services/google_calendar_service.dart
 //
-// Responsibilities:
-//   1. Sign the user in with Google and send the server auth code to Vercel.
-//   2. Fetch calendar events for a date range from the Vercel endpoint.
-//   3. Map raw JSON → CalendarEvent objects used across the app.
+// Google Calendar integration (client side).
 //
-// Vercel endpoints:
-//   POST /api/calendar/exchange  — stores refresh_token in Supabase
-//   GET  /api/calendar/events    — returns events for a date range
+// How the pieces fit together
+// ───────────────────────────
+//   1. [signIn] opens Google's consent screen (Google Identity Services on web,
+//      the native picker on mobile) asking for calendar.readonly and
+//      calendar.events, and receives a one-time *server auth code*.
+//   2. The code goes to POST /api/calendar/exchange; the server swaps it for a
+//      refresh token, checks BOTH scopes were granted and stores the token in
+//      Supabase. The app never sees the refresh token.
+//   3. [fetchEvents] / [syncNow] read events through the backend, which
+//      keeps a cache in sync with Google using incremental sync tokens —
+//      events added, edited or deleted in Google Calendar flow into the app
+//      the next time we sync (every few minutes, see SyncService).
+//   4. [createEvent] writes an event back to Google Calendar
+//      (calendar.events scope).
 
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../presentation/calendar_view_screen/calendar_view_screen.dart';
+import '../core/app_config.dart';
+import '../models/calendar_event.dart';
+import '../models/sync_report.dart';
+import 'api_client.dart';
 
-class GoogleCalendarService {
+class GoogleCalendarService extends ChangeNotifier {
   GoogleCalendarService._();
   static final GoogleCalendarService instance = GoogleCalendarService._();
 
-  // ── Configuration ───────────────────────────────────────────────────────────
-  static const String _vercelBaseUrl = String.fromEnvironment(
-    'VERCEL_BASE_URL',
-    defaultValue: 'https://academia-plum.vercel.app',
-  );
-
-  static const String _serverClientId = String.fromEnvironment(
-    'GOOGLE_WEB_CLIENT_ID',
-    defaultValue:
-        '821856499544-pro3mv21j1dkrqiiqf4b0ssbiie3u3u9.apps.googleusercontent.com',
-  );
-
-  // ── Internal state ──────────────────────────────────────────────────────────
-  final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 20),
-  ));
+  final ApiClient _api = ApiClient.instance;
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
-    serverClientId: _serverClientId,
+    scopes: AppConfig.googleScopes,
+    serverClientId: AppConfig.googleWebClientId,
+    // Android: always return a fresh auth code so a refresh token is issued.
+    forceCodeForRefreshToken: true,
   );
 
   bool _isConnected = false;
+  bool _needsReconnect = false;
+  DateTime? _lastSynced;
+
   bool get isConnected => _isConnected;
+
+  /// True when the stored grant predates the calendar.events scope, so we can
+  /// read but not write. The user must reconnect once to upgrade it.
+  bool get needsReconnect => _needsReconnect;
+  DateTime? get lastSynced => _lastSynced;
+
+  void _setState({bool? connected, bool? needsReconnect}) {
+    _isConnected = connected ?? _isConnected;
+    _needsReconnect = needsReconnect ?? _needsReconnect;
+    notifyListeners();
+  }
 
   // ── Auth ────────────────────────────────────────────────────────────────────
 
-  /// Checks if this user already has a token in Supabase (restore on app launch).
+  /// Restores connection state on app launch by checking whether the server
+  /// already holds a token (and with which scopes) for this user.
   Future<void> checkExistingConnection() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
 
     try {
-      final result = await Supabase.instance.client
+      final row = await Supabase.instance.client
           .from('calendar_tokens')
-          .select('user_id')
+          .select('scope')
           .eq('user_id', userId)
           .maybeSingle();
 
-      _isConnected = result != null;
-    } catch (_) {
-      _isConnected = false;
+      final scope = (row?['scope'] as String?) ?? '';
+      _setState(
+        connected: row != null,
+        needsReconnect:
+            row != null && !scope.contains(AppConfig.googleEventsScope),
+      );
+    } catch (e) {
+      debugPrint('[GCal] checkExistingConnection: $e');
     }
   }
 
-  /// Signs the user in with Google (shows account picker) and sends the
-  /// server auth code to Vercel to exchange for a refresh token.
+  /// Signs in with Google and hands the server auth code to the backend.
   ///
-  /// Returns `null` on success, or a human-readable error string on failure.
+  /// Returns `null` on success, otherwise a short error code:
+  /// `cancelled`, `no_auth_code`, `missing_scopes`, `exchange_failed_<status>`,
+  /// `network_error: …`.
   Future<String?> signIn() async {
     try {
-      // 1. Trigger Google sign-in (account picker) immediately to avoid browser popup blockers.
-      // Modern browsers require popups to be opened synchronously from user gestures;
-      // putting any asynchronous call (like Supabase init) first will break the user gesture chain.
-      debugPrint('[GCalService] Starting Google sign-in…');
-      final GoogleSignInAccount? account = await _googleSignIn.signIn();
-      if (account == null) {
-        debugPrint('[GCalService] User cancelled sign-in');
-        return 'cancelled';
-      }
-      debugPrint('[GCalService] Signed in as ${account.email}');
+      // Must be the first await: browsers only allow the sign-in popup while
+      // the user's click is still "fresh".
+      final account = await _googleSignIn.signIn();
+      if (account == null) return 'cancelled';
 
-      // 2. Get server auth code — requires a valid Web Application OAuth client ID
-      final String? serverAuthCode = account.serverAuthCode;
-      if (serverAuthCode == null) {
-        debugPrint(
-          '[GCalService] serverAuthCode is null.\n'
-          '  → Make sure serverClientId is your Web Application OAuth 2.0 client ID\n'
-          '  → NOT the Android or iOS client ID.\n'
-          '  → Current value: $_serverClientId',
-        );
+      // Scopes the user unticked on the consent screen are caught by the
+      // server (403 → 'missing_scopes'), which sees the scopes Google granted.
+      final code = account.serverAuthCode;
+      if (code == null) {
+        debugPrint('[GCal] serverAuthCode is null — is GOOGLE_WEB_CLIENT_ID a '
+            '"Web application" client id?');
         return 'no_auth_code';
       }
-      debugPrint('[GCalService] Got serverAuthCode (length: ${serverAuthCode.length})');
 
-      // 3. Sign in anonymously to Supabase (now safe to do asynchronously)
-      final supabase = Supabase.instance.client;
-      if (supabase.auth.currentUser == null) {
-        debugPrint('[GCalService] No Supabase session — signing in anonymously…');
-        await supabase.auth.signInAnonymously();
-      }
-
-      final String? userId = supabase.auth.currentUser?.id;
-      if (userId == null) {
-        debugPrint('[GCalService] Could not get Supabase user ID');
-        return 'no_supabase_user';
-      }
-      debugPrint('[GCalService] Supabase user ID: $userId');
-
-      // 4. Send to Vercel for token exchange
-      debugPrint('[GCalService] Calling $_vercelBaseUrl/api/calendar/exchange…');
-      final response = await _dio.post(
-        '$_vercelBaseUrl/api/calendar/exchange',
-        data: {'server_auth_code': serverAuthCode, 'user_id': userId},
-      );
-
-      if (response.statusCode == 200) {
-        _isConnected = true;
-        debugPrint('[GCalService] Connected successfully: ${response.data}');
-        return null; // success
-      }
-
-      debugPrint('[GCalService] Exchange failed (${response.statusCode}): ${response.data}');
-      return 'exchange_failed_${response.statusCode}';
-    } on DioException catch (e) {
-      final status = e.response?.statusCode;
-      final body = e.response?.data;
-      debugPrint('[GCalService] signIn DioException ($status): ${e.message}\nBody: $body');
-      return 'network_error: ${e.message} (status: $status, body: $body)';
+      await _api.post('/api/calendar/exchange', body: {'server_auth_code': code});
+      _lastSynced = DateTime.now();
+      _setState(connected: true, needsReconnect: false);
+      return null;
+    } on ApiException catch (e) {
+      debugPrint('[GCal] signIn failed: $e');
+      if (e.status == 403) return 'missing_scopes';
+      if (e.status == null) return 'network_error: ${e.message}';
+      return 'exchange_failed_${e.status}: ${e.message}';
     } catch (e) {
-      debugPrint('[GCalService] signIn unexpected error: $e');
+      debugPrint('[GCal] signIn unexpected: $e');
       return 'unexpected: $e';
     }
   }
 
-  /// Signs out of Google. Does NOT delete the Supabase refresh token,
-  /// so the server can still fetch events in the background.
+  /// Signs out of Google on this device. The server keeps its token so
+  /// background sync continues; use the backend to revoke fully.
   Future<void> signOut() async {
     await _googleSignIn.signOut();
-    _isConnected = false;
+    _setState(connected: false);
   }
 
-  // ── Events ──────────────────────────────────────────────────────────────────
+  /// Turns a [signIn] error code into a message a student can act on.
+  static String describeError(String code) {
+    if (code == 'missing_scopes') {
+      return 'Academia needs permission to view AND edit calendar events. '
+          'Please reconnect and leave both boxes ticked.';
+    }
+    if (code == 'no_auth_code') {
+      return 'Google did not return a server auth code. Check that '
+          'GOOGLE_WEB_CLIENT_ID is a "Web application" client id.';
+    }
+    if (code.startsWith('exchange_failed_5')) {
+      return 'The Academia server hit an error. Check that the Google and '
+          'Supabase keys are set in the Vercel project.';
+    }
+    if (code.startsWith('exchange_failed_')) {
+      return 'Could not finish connecting ($code).';
+    }
+    if (code.startsWith('network_error')) {
+      return 'Could not reach the Academia server. Check your connection.';
+    }
+    return 'Connection failed: $code';
+  }
 
-  /// Fetches events for [start]–[end] from Vercel (which caches in Supabase).
+  // ── Reading ─────────────────────────────────────────────────────────────────
+
+  /// Events between [start] and [end] (inclusive dates).
+  /// The backend refreshes its cache first when it is older than 5 minutes.
   Future<List<CalendarEvent>> fetchEvents({
     required DateTime start,
     required DateTime end,
   }) async {
-    // Ensure we have a Supabase session
-    final supabase = Supabase.instance.client;
-    if (supabase.auth.currentUser == null) {
-      try {
-        await supabase.auth.signInAnonymously();
-      } catch (_) {}
-    }
-
-    final String? userId = supabase.auth.currentUser?.id;
-    if (userId == null) return [];
-
     try {
-      final String timeMin =
-          '${start.toIso8601String().split('T')[0]}T00:00:00Z';
-      final String timeMax =
-          '${end.toIso8601String().split('T')[0]}T23:59:59Z';
+      final json = await _api.get('/api/calendar/events', query: {
+        'time_min': '${_ymd(start)}T00:00:00Z',
+        'time_max': '${_ymd(end)}T23:59:59Z',
+      });
+      _lastSynced = DateTime.now();
+      _setState(connected: true);
 
-      final response = await _dio.get(
-        '$_vercelBaseUrl/api/calendar/events',
-        queryParameters: {
-          'user_id': userId,
-          'time_min': timeMin,
-          'time_max': timeMax,
-        },
-      );
-
-      if (response.statusCode != 200) return [];
-
-      final List<dynamic> rawEvents =
-          (response.data as Map<String, dynamic>)['events'] as List<dynamic>;
-
-      _isConnected = true;
-      return rawEvents
-          .map((json) => _mapToCalendarEvent(json as Map<String, dynamic>))
+      return (json['events'] as List<dynamic>? ?? [])
+          .map((row) => CalendarEvent.fromRow(row as Map<String, dynamic>))
           .toList();
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 401) _isConnected = false;
-      debugPrint('[GCalService] fetchEvents: ${e.message}');
+    } on ApiException catch (e) {
+      debugPrint('[GCal] fetchEvents: $e');
+      if (e.isUnauthorized) _setState(connected: false);
       return [];
     } catch (e) {
-      debugPrint('[GCalService] fetchEvents error: $e');
+      debugPrint('[GCal] fetchEvents unexpected: $e');
       return [];
     }
   }
 
-  /// Convenience: fetch a full month plus one-week buffer on each side.
+  /// A month plus a one-week buffer either side (for the month grid).
   Future<List<CalendarEvent>> fetchMonthEvents(DateTime month) {
     final start =
         DateTime(month.year, month.month, 1).subtract(const Duration(days: 7));
@@ -204,27 +186,86 @@ class GoogleCalendarService {
     return fetchEvents(start: start, end: end);
   }
 
-  // ── Mapping ─────────────────────────────────────────────────────────────────
+  /// Forces the backend to pull the latest changes from Google right now.
+  Future<SyncReport> syncNow() async {
+    if (!_isConnected) {
+      return SyncReport(
+        source: SyncSource.googleCalendar,
+        at: DateTime.now(),
+        error: 'not_connected',
+      );
+    }
+    try {
+      final json = await _api.post('/api/calendar/sync');
+      _lastSynced = DateTime.now();
+      notifyListeners();
 
-  CalendarEvent _mapToCalendarEvent(Map<String, dynamic> json) {
-    final String dateStr = json['event_date'] as String;
-    final parts = dateStr.split('-');
+      // The first (full) sync is not "news" — only report incremental changes.
+      final incremental = json['mode'] == 'incremental';
+      return SyncReport(
+        source: SyncSource.googleCalendar,
+        at: _lastSynced!,
+        updated: incremental ? (json['upserted'] as int? ?? 0) : 0,
+        removed: incremental ? (json['deleted'] as int? ?? 0) : 0,
+      );
+    } on ApiException catch (e) {
+      if (e.isUnauthorized) _setState(connected: false);
+      return SyncReport(
+        source: SyncSource.googleCalendar,
+        at: DateTime.now(),
+        error: e.message,
+      );
+    }
+  }
 
-    return CalendarEvent(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      source: json['source'] as String? ?? 'google_calendar',
-      date: DateTime(
-        int.parse(parts[0]),
-        int.parse(parts[1]),
-        int.parse(parts[2]),
-      ),
-      startTime: json['start_time'] as String,
-      endTime: json['end_time'] as String,
-      location: json['location'] as String? ?? '',
-      courseCode: json['course_code'] as String? ?? '',
-      description: json['description'] as String? ?? '',
-      isAllDay: json['is_all_day'] as bool? ?? false,
-    );
+  // ── Writing ─────────────────────────────────────────────────────────────────
+
+  /// Creates an event in the user's primary Google Calendar.
+  /// Returns the stored event, or `null` if it could not be created.
+  Future<CalendarEvent?> createEvent({
+    required String title,
+    required DateTime date,
+    String startTime = '09:00',
+    String endTime = '10:00',
+    String location = '',
+    String description = '',
+    bool isAllDay = false,
+  }) async {
+    if (!_isConnected || _needsReconnect) return null;
+    try {
+      final json = await _api.post('/api/calendar/create', body: {
+        'title': title,
+        'date': _ymd(date),
+        'start_time': startTime,
+        'end_time': endTime,
+        'location': location,
+        'description': description,
+        'is_all_day': isAllDay,
+        'utc_offset': _utcOffset(date),
+      });
+      final row = json['event'];
+      return row is Map<String, dynamic> ? CalendarEvent.fromRow(row) : null;
+    } on ApiException catch (e) {
+      debugPrint('[GCal] createEvent: $e');
+      return null;
+    }
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  String _ymd(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
+  /// Device UTC offset on [date] as `+10:00` (Google needs an offset because
+  /// Dart cannot supply an IANA zone name).
+  String _utcOffset(DateTime date) {
+    final o = DateTime(date.year, date.month, date.day, 12).timeZoneOffset;
+    final sign = o.isNegative ? '-' : '+';
+    final abs = o.abs();
+    final hh = abs.inHours.toString().padLeft(2, '0');
+    final mm = (abs.inMinutes % 60).toString().padLeft(2, '0');
+    return '$sign$hh:$mm';
   }
 }
